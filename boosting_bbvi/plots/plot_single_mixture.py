@@ -1,4 +1,15 @@
 #!/usr/bin/python
+"""
+Plot multiple 1d mixture models
+
+Example usage:
+    python plots/plot_single_mixture.py \
+            --outdir=/tmp \
+            --title=single mixture \
+            --target=/path/target_dist.npz \
+            --qt=/path/qt_iter25.npz,/path/qt_latest.npz \
+            --labels=iter25,latest
+"""
 
 from __future__ import print_function
 
@@ -12,11 +23,11 @@ from absl import app
 from absl import flags
 
 import matplotlib
-matplotlib.use('Agg')
+matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
 plt.style.use('ggplot')
 plt.rcParams['axes.facecolor'] = 'white'
-plt.rcParams['lines.color']= 'blue'
+plt.rcParams['lines.color'] = 'blue'
 
 import tensorflow as tf
 from edward.models import Categorical, MultivariateNormalDiag, Normal, Mixture
@@ -24,8 +35,10 @@ from edward.models import Categorical, MultivariateNormalDiag, Normal, Mixture
 from boosting_bbvi.core.infinite_mixture import InfiniteMixtureScipy
 
 FLAGS = flags.FLAGS
-flags.DEFINE_string('outdir', '/tmp/', '')
-flags.DEFINE_string('outfile', 'mixtures.png', '')
+flags.DEFINE_string('outdir', '/tmp/',
+                    'Output file to store plot into, set to stdout to '
+                    'only show the plots and not save them')
+flags.DEFINE_string('outfile', 'mixtures.png', 'name of the plot file')
 flags.DEFINE_string('title', 'my awesome figure', '')
 
 flags.DEFINE_string('ylabel', 'y', '')
@@ -35,13 +48,16 @@ flags.DEFINE_string('target', None, 'path to target.npz')
 flags.mark_flag_as_required('target')
 
 flags.DEFINE_list('qt', [], 'comma-separated list,of,qts to visualize')
-flags.DEFINE_list('labels', [], 'labels to be associated with the qts')
+flags.DEFINE_list('labels', [], 'list of labels to be associated with the qts')
 flags.DEFINE_list('styles', [], 'styles for each plot')
 flags.DEFINE_boolean('widegrid', False, 'range for the x-axis')
-flags.DEFINE_boolean('bars', False, 'plot bar chart (loc, weight) for each component')
+flags.DEFINE_boolean('bars', False,
+                     'plot bar chart (loc, weight) for each component')
+
 
 def eprint(*args, **kwargs):
     print(*args, file=sys.stderr, **kwargs)
+
 
 def construct_mixture_from_params(**kwargs):
     weights = kwargs['weights']
@@ -53,6 +69,7 @@ def construct_mixture_from_params(**kwargs):
     qx.params = list(zip([[l] for l in locs], [[np.dot(d, d)] for d in diags]))
 
     return qx
+
 
 def deserialize_mixture_from_file(filename):
     qt_deserialized = np.load(filename)
@@ -67,6 +84,7 @@ def deserialize_mixture_from_file(filename):
     q_latest = Mixture(cat=cat, components=q_comps)
     return q_latest
 
+
 def deserialize_target_from_file(filename):
     qt_deserialized = np.load(filename)
     mus = qt_deserialized['mus'].astype(np.float32)
@@ -74,9 +92,13 @@ def deserialize_target_from_file(filename):
     pi = qt_deserialized['pi'].astype(np.float32)
 
     cat = Categorical(probs=tf.convert_to_tensor(pi))
-    target_comps = [Normal(loc=tf.convert_to_tensor(mus[i]),
-                    scale=tf.convert_to_tensor(stds[i])) for i in range(len(mus))]
+    target_comps = [
+        Normal(
+            loc=tf.convert_to_tensor(mus[i]),
+            scale=tf.convert_to_tensor(stds[i])) for i in range(len(mus))
+    ]
     return Mixture(cat=cat, components=target_comps)
+
 
 def main(argv):
     del argv
@@ -98,7 +120,7 @@ def main(argv):
     else:
         styles = ['+', 'x', '.', '-']
 
-    grid = np.array([[g] for g in grid]) # package dims for tf
+    grid = np.array([[g] for g in grid])  # package dims for tf
     fig, ax = plt.subplots()
     sess = tf.Session()
     with sess.as_default():
@@ -107,14 +129,20 @@ def main(argv):
         ax.plot(grid, xprobs, label='target', linewidth=2.0)
 
         if len(FLAGS.qt) == 0:
-            eprint("provide some qts to the `--qt` option if you would like to plot them")
+            eprint(
+                "provide some qts to the `--qt` option if you would like to plot them"
+            )
 
-        for i,(qt_filename,label) in enumerate(zip(FLAGS.qt, labels)):
+        for i, (qt_filename, label) in enumerate(zip(FLAGS.qt, labels)):
             eprint("visualizing %s" % qt_filename)
             qt = deserialize_mixture_from_file(qt_filename)
-            qtprobs = tf.exp(qt.log_prob( grid ))
+            qtprobs = tf.exp(qt.log_prob(grid))
             qtprobs = qtprobs.eval()
-            ax.plot(np.squeeze(grid), np.squeeze(qtprobs), styles[i % len(styles)], label=label)
+            ax.plot(
+                np.squeeze(grid),
+                np.squeeze(qtprobs),
+                styles[i % len(styles)],
+                label=label)
 
         if len(FLAGS.qt) == 1 and FLAGS.bars:
             locs = [comp.loc.eval() for comp in qt.components]
@@ -129,11 +157,16 @@ def main(argv):
     ax.set_xlabel(FLAGS.xlabel)
     ax.set_ylabel(FLAGS.ylabel)
     fig.suptitle(FLAGS.title)
-    legend = plt.legend(loc='upper right', prop={'size': 15}, bbox_to_anchor=(1.08,1))
-    outname = os.path.join(os.path.expanduser(FLAGS.outdir), FLAGS.outfile)
-    fig.tight_layout()
-    fig.savefig(outname, bbox_extra_artists=(legend,), bbox_inches='tight')
-    print(outname)
+    legend = plt.legend(
+        loc='upper right', prop={'size': 15}, bbox_to_anchor=(1.08, 1))
+    if FLAGS.outdir == 'stdout':
+        plt.show()
+    else:
+        fig.tight_layout()
+        outname = os.path.join(os.path.expanduser(FLAGS.outdir), FLAGS.outfile)
+        fig.savefig(outname, bbox_extra_artists=(legend,), bbox_inches='tight')
+        print('saved to ', outname)
+
 
 if __name__ == "__main__":
     app.run(main)
