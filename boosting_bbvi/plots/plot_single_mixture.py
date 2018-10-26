@@ -25,6 +25,8 @@ from absl import flags
 import matplotlib
 matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
+import pandas as pd
+import seaborn as sns
 plt.style.use('ggplot')
 plt.rcParams['axes.facecolor'] = 'white'
 plt.rcParams['lines.color'] = 'blue'
@@ -51,6 +53,7 @@ flags.DEFINE_list('qt', [], 'comma-separated list,of,qts to visualize')
 flags.DEFINE_list('labels', [], 'list of labels to be associated with the qts')
 flags.DEFINE_list('styles', [], 'styles for each plot')
 flags.DEFINE_boolean('widegrid', False, 'range for the x-axis')
+flags.DEFINE_boolean('grid2d', False, '3D plot')
 flags.DEFINE_boolean('bars', False,
                      'plot bar chart (loc, weight) for each component')
 
@@ -77,9 +80,12 @@ def deserialize_mixture_from_file(filename):
     scale_diags = qt_deserialized['scale_diags'].astype(np.float32)
     weights = qt_deserialized['weights'].astype(np.float32)
 
-    #q_comps = [Normal(loc=loc[0], scale=tf.nn.softmax(scale_diag)[0]) \
-    q_comps = [Normal(loc=loc[0], scale=scale_diag[0]) \
-                for loc, scale_diag in zip(locs, scale_diags)]
+    q_comps = [
+        MultivariateNormalDiag(
+            loc=loc,
+            scale_diag=scale_diag)
+        for loc, scale_diag in zip(locs, scale_diags)
+    ]
     cat = Categorical(probs=tf.convert_to_tensor(weights))
     q_latest = Mixture(cat=cat, components=q_comps)
     return q_latest
@@ -91,11 +97,12 @@ def deserialize_target_from_file(filename):
     stds = qt_deserialized['stds'].astype(np.float32)
     pi = qt_deserialized['pi'].astype(np.float32)
 
-    cat = Categorical(probs=tf.convert_to_tensor(pi))
+    cat = Categorical(probs=tf.convert_to_tensor(pi[0]))
     target_comps = [
-        Normal(
+        MultivariateNormalDiag(
             loc=tf.convert_to_tensor(mus[i]),
-            scale=tf.convert_to_tensor(stds[i])) for i in range(len(mus))
+            scale_diag=tf.convert_to_tensor(stds[i]))
+        for i in range(len(mus))
     ]
     return Mixture(cat=cat, components=target_comps)
 
@@ -110,6 +117,12 @@ def main(argv):
     else:
         grid = np.arange(-4, 4, 0.1).astype(np.float32)
 
+    if FLAGS.grid2d:
+        # 2D grid
+        grid = np.arange(-2, 2, 0.1).astype(np.float32)
+        gridx, gridy = np.meshgrid(grid, grid)
+        grid = np.vstack((gridx.flatten(), gridy.flatten())).T
+
     if FLAGS.labels:
         labels = FLAGS.labels
     else:
@@ -119,14 +132,23 @@ def main(argv):
         styles = FLAGS.styles
     else:
         styles = ['+', 'x', '.', '-']
+        colors = ['Greens', 'Reds']
 
-    grid = np.array([[g] for g in grid])  # package dims for tf
-    fig, ax = plt.subplots()
     sess = tf.Session()
+    if FLAGS.grid2d:
+        fig = plt.figure()
+        ax = fig.add_subplot(211)
+    else:
+        fig, ax = plt.subplots()
+        grid = np.expand_dims(grid, 1)  # package dims for tf
     with sess.as_default():
         xprobs = x.log_prob(grid)
         xprobs = tf.exp(xprobs).eval()
-        ax.plot(grid, xprobs, label='target', linewidth=2.0)
+        if FLAGS.grid2d:
+            ax.pcolormesh(
+                gridx, gridy, xprobs.reshape(gridx.shape), cmap='Blues')
+        else:
+            ax.plot(grid, xprobs, label='target', linewidth=2.0)
 
         if len(FLAGS.qt) == 0:
             eprint(
@@ -138,11 +160,25 @@ def main(argv):
             qt = deserialize_mixture_from_file(qt_filename)
             qtprobs = tf.exp(qt.log_prob(grid))
             qtprobs = qtprobs.eval()
-            ax.plot(
-                np.squeeze(grid),
-                np.squeeze(qtprobs),
-                styles[i % len(styles)],
-                label=label)
+            if FLAGS.grid2d:
+                ax2 = fig.add_subplot(212)
+                ax2.pcolormesh(
+                    gridx,
+                    gridy,
+                    qtprobs.reshape(gridx.shape),
+                    cmap='Greens')
+                #ax2.pcolormesh(
+                #    gridx,
+                #    gridy,
+                #    qtprobs.reshape(gridx.shape),
+                #    cmap='Greens',
+                #    alpha=0.3)
+            else:
+                ax.plot(
+                    np.squeeze(grid),
+                    np.squeeze(qtprobs),
+                    styles[i % len(styles)],
+                    label=label)
 
         if len(FLAGS.qt) == 1 and FLAGS.bars:
             locs = [comp.loc.eval() for comp in qt.components]
@@ -157,8 +193,9 @@ def main(argv):
     ax.set_xlabel(FLAGS.xlabel)
     ax.set_ylabel(FLAGS.ylabel)
     fig.suptitle(FLAGS.title)
-    legend = plt.legend(
-        loc='upper right', prop={'size': 15}, bbox_to_anchor=(1.08, 1))
+    if not FLAGS.grid2d:
+        legend = plt.legend(
+            loc='upper right', prop={'size': 15}, bbox_to_anchor=(1.08, 1))
     if FLAGS.outdir == 'stdout':
         plt.show()
     else:

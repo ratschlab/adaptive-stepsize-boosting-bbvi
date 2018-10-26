@@ -1,4 +1,19 @@
 #!/usr/bin/python
+"""
+Run Black Box relbo
+
+Example usage
+
+python scripts/mixture_model_relbo.py \
+        --relbo_reg 1.0 \
+        --relbo_annlear linear \
+        --fw_variant fixed \
+        --outdir=${TD}/2d \
+        --n_fw_iter=10 \
+        --LMO_iter=20 \
+        --exp mixture_2d
+
+"""
 
 import boosting_bbvi.core.utils as utils
 logger = utils.get_logger()
@@ -62,6 +77,14 @@ elif FLAGS.exp == 'many':
     mus = np.array([[5.0], [10.0], [20.0], [-2]]).astype(np.float32)
     stds = np.array([[2], [2], [1], [1]]).astype(np.float32)
     pi = np.array([[1.0 / 3, 1.0 / 4, 1.0 / 4, 1.0 / 6]]).astype(np.float32)
+elif FLAGS.exp == 'mixture_2d':
+    pi = np.array([[0.4, 0.6]]).astype(np.float32)
+    mus = [[1.], [-1.]]
+    stds = [[.6], [.6]]
+    # create mus and stds for all dimensions, copying for now
+    # TODO(sauravshekhar) create asymmetrical mv gaussians
+    mus = np.tile(mus, [1, 2])
+    stds = np.tile(stds, [1, 2])
 else:
     raise KeyError("undefined experiment")
 
@@ -103,6 +126,8 @@ def construct_normal(dims, iter, name='', sample_shape=N):
 
 def elbo(q, p, n_samples=1000):
     samples = q.sample(n_samples)
+    t1 = p.log_prob(samples)
+    t2 = q.log_prob(samples)
     elbo_samples = p.log_prob(samples) - q.log_prob(samples)
     elbo_samples = elbo_samples.eval()
 
@@ -261,7 +286,10 @@ def fully_corrective(q, p):
 def main(argv):
     del argv
 
-    x_train, components = build_toy_dataset(N)
+    if FLAGS.exp.endswith('2d'):
+        x_train, components = build_toy_dataset(N, D=2)
+    else:
+        x_train, components = build_toy_dataset(N)
     n_examples, n_features = x_train.shape
 
     # save the target
@@ -280,26 +308,27 @@ def main(argv):
             with sess.as_default():
                 # build model
                 xcomps = [
-                    Normal(
-                        loc=tf.convert_to_tensor(mus[i]),
-                        scale=tf.convert_to_tensor(stds[i]))
+                    MultivariateNormalDiag(
+                        loc=tf.convert_to_tensor(mus[i], dtype=tf.float32),
+                        scale_diag=tf.convert_to_tensor(
+                            stds[i], dtype=tf.float32))
                     for i in range(len(mus))
                 ]
                 x = Mixture(
-                    cat=Categorical(probs=tf.convert_to_tensor(pi)),
+                    cat=Categorical(probs=tf.convert_to_tensor(pi[0])),
                     components=xcomps,
                     sample_shape=N)
 
-                qx = construct_normal([n_features], iter, 'qx')
+                #qx = construct_multivariatenormaldiag(
+                #    [n_features], iter, 'qx', sample_shape=[N, n_features])
+                qx = construct_normal(
+                    [n_features], iter, 'qx', sample_shape=N)
                 if iter > 0:
                     qtx = Mixture(
                         cat=Categorical(probs=tf.convert_to_tensor(weights)),
                         components=[
-                            Normal(
-                                loc=c['loc'][0],
-                                #scale_diag=tf.nn.softplus(
-                                #    c['scale_diag'])) for c in comps], sample_shape=N)
-                                scale=c['scale_diag'][0]) for c in comps
+                            Normal(loc=c['loc'][0], scale=c['scale_diag'][0])
+                            for c in comps
                         ],
                         sample_shape=N)
                     fw_iterates = {x: qtx}
