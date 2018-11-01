@@ -143,6 +143,22 @@ def setup_outdir():
 
 
 def line_search_dkl(weights, locs, diags, mu_s, cov_s, x, k):
+    """Perform line search for the best step size gamma.
+    
+    Uses gradient ascent to find gamma that minimizes
+    KL(q_t + gamma (s - q_t) || p)
+    
+    Args:
+        weights: weights of mixture components of q_t
+        locs: means of mixture components of q_t
+        diags: deviations of mixture components of q_t
+        mu_s: mean for LMO Solution s
+        cov_s: cov matrix for LMO solution s
+        x: target distribution p
+        k: iteration number of Frank-Wolfe
+    Returns:
+       Computed gamma
+    """
     def softmax(v):
         return np.log(1 + np.exp(v))
     # no. of samples to approximate $\nabla_{\gamma}$
