@@ -1,5 +1,3 @@
-#!/usr/bin/python 
-
 import utils
 logger = utils.get_logger()
 
