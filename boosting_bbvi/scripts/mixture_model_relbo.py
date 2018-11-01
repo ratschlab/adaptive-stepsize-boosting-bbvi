@@ -168,13 +168,13 @@ def line_search_dkl(weights, locs, diags, mu_s, cov_s, x, k):
     s = stats.multivariate_normal([mu_s],
                                   np.dot(np.array([cov_s]), np.array([cov_s])))
     sample_s = s.rvs(N_samples)
-    # $q_{t+1} is mixture of $q_t$ and s with weights $(1 - \gamma)$ and $\gamma$
+    # $q_{t+1}$ is mixture of $q_t$ and s with weights $(1 - \gamma)$ and $\gamma$
     # Set its corresponding parameters and weights
     new_locs = copy.copy(locs)
     new_diags = copy.copy(diags)
     new_locs.append([mu_s])
     new_diags.append([cov_s])
-    # initialize gamma
+    # initialize $\gamma$
     gamma = 2. / (k + 2.)
     # no. steps of gradient ascent
     n_steps = 10
@@ -189,7 +189,7 @@ def line_search_dkl(weights, locs, diags, mu_s, cov_s, x, k):
         q_next.weights = new_weights[0]
         q_next.params = list(
             zip([[l] for l in new_locs], [[np.dot(d, d)] for d in new_diags]))
-        # Computes $\mathbb{E}[...] \approx \sum_{v}{\log p - \log q_{t + 1}^{\gamma}}$
+        # Computes $\mathbb{E}[...] \propto \sum_{v}{\log p - \log q_{t + 1}^{\gamma}}$
         def px_qx_ratio_log_prob(v):
             Lambda = 1.
             ret = x.log_prob([v]).eval()[0] - q_next.log_prob(v)
@@ -204,7 +204,7 @@ def line_search_dkl(weights, locs, diags, mu_s, cov_s, x, k):
             px_qx_ratio_log_prob(sample_q[ss]) for ss in range(len(sample_q))
         ]
         # TODO(sauravshekhar) measure how noisy gradients are
-        # Gradient ascent step, step size decreasing as \frac{1}{it + 1}
+        # Gradient ascent step, step size decreasing as $\frac{1}{it + 1}$
         gamma = gamma + 0.1 * (sum(rez_s) - sum(rez_q)) / (N_samples *
                                                            (it + 1.))
         # Projecting it back to [0, 1], too small range?
