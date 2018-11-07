@@ -1,6 +1,14 @@
 __pycache__/
 *.swp
 *.pyc
+*.aux
+*.blg
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.gz
+_minted-summaries/
 
 # Distribution / packaging
 .Python
