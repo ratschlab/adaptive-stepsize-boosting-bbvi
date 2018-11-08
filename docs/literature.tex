@@ -231,8 +231,13 @@ and \href{http://www.it.uu.se/research/systems_and_control/education/2018/pml/le
 \mypar{Reparameterization trick} 
 \\\TODO
 
-\mypar{Boosting Variational inference}
-  \TODO
+\mypar{Boosting Variational inference} \cite{guo2016boosting} \INPROGRESS \\
+Iterative boosting by $q_{i + 1} = (1 - \gamma) q_i + \gamma h_i$.
+\comment{Very similar to Frank-Wolfe}. Optimization is to find optimal $\gamma$
+and $h_i$ at every step. $\gamma$ is very similar to line search method for
+\cite{locatello2018boosting} and the method is exactly same (stochastic gradient
+descent by taking expectations). For $h_i$ a \emph{Laplacian Gradient Boosting}
+technique is used.
 
 \mypar{Frank-Wolfe} \INPROGRESS
   \cite{jaggi2013revisiting} \cite{pedregosa2018frank} 
