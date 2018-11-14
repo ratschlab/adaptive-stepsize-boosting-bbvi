@@ -6,9 +6,9 @@
   \EEE{q(\bz)}{\log q(\bz)} - \EEE{q(\bz)}{\log p(\bz | \bx)} \\
   \text{ELBO}(q) &:= \EEE{q(\bz)}{\log p(\bz, \bx)} - \EEE{q(\bz)}{\log q(\bz)} \\
   \kl{q(\bz)||p(\bz|\bx)} + \magenta{\underbrace{\text{ELBO}(q)}_{\uparrow \text{Optimize}}}
-    &= \underbrace{\log p(\bx)}_{\text{constant w. } q} \\
-    \text{ELBO}(q) &= \EE{\log p(\bx | \bz)} - \kl{q(\bz) || p(\bz)} \\
-    \text{ELBO}(q) &= \cQ(\theta, \theta_t) - \mathcal{H}(\bz|\bx) \text{ \comment{ //Entropy}}\\
+                 &= \underbrace{\log p(\bx)}_{\text{constant w. } q} \\
+  \text{ELBO}(q) &= \EE{\log p(\bx | \bz)} - \kl{q(\bz) || p(\bz)} \\
+  \text{ELBO}(q) &= \cQ(\theta, \theta_t) - \mathcal{H}(\bz|\bx) \text{ \comment{ //Entropy}}\\
 \end{align}
 \begin{algorithm}[h]
   \KwIn{A model $p(\bx, \bz)$, a data set $\bx$}
@@ -17,24 +17,24 @@
   \While{the ELBO has not converged} {
     \For{$j \in \{1, \ldots, m\}$} {
       Set $q_{j}(z_j) \propto \exp\{\E_{-j}[\log p(z_j \g \bz_{-j}, \bx)]\}$\\
-      }
-      Compute $\ELBO(q) = \EE{\log p(\bz, \bx)} - \EE{\log q(\bz)}$
-      }
-\Return{$q(\bz)$}
-\caption{Coordinate Ascent for VI}
-\label{alg:cavi}
+    }
+    Compute $\ELBO(q) = \EE{\log p(\bz, \bx)} - \EE{\log q(\bz)}$
+  }
+  \Return{$q(\bz)$}
+  \caption{Coordinate Ascent for VI}
+  \label{alg:cavi}
 \end{algorithm}
-    
+
 \mypar{Exponential families conditional conjugacy} \cite{pgmai18}
 \TODO define conditional conjugacy properly
 \begin{algorithm}[h]
   \KwIn{A model $p$, variational family $q_{\phi(z)}, q_{\lambda}(z)$}
   \While{\text{ELBO is not converged}} {
     \For{\text{each data point} i} {
-        Update $\varphi_i \gets \EEE{\lambda}{\eta_l(\beta, x_i)}$\\
-      }
-      Update $\lambda \gets \EEE{\varphi}{\eta_g(x, z)}$\\
+      Update $\varphi_i \gets \EEE{\lambda}{\eta_l(\beta, x_i)}$\\
     }
+    Update $\lambda \gets \EEE{\varphi}{\eta_g(x, z)}$\\
+  }
   \caption{VI with conjugate family assumption}
   \label{alg:vi_conj}
 \end{algorithm}
@@ -84,239 +84,329 @@ in the right space:
   \label{eqn:g_inv_eqn}
   \hat{\nabla_{\lambda}}ELBO &= G^{-1}(\lambda)\nabla_{\lambda}ELBO \text{ where } \\
   G(\lambda) &= \EE{{\Big(\nabla_{\lambda} \log q_{\lambda} (\beta) \Big)}
-                    {\Big(\nabla_{\lambda} \log q_{\lambda} (\beta) \Big)}^\intercal}
-                  \label{eqn:g_fis_inf}
-\end{align}
-$G(\lambda)$ is the Fisher information matrix. For our model class (conjugate exponential...)
-We've
-\begin{align} \label{eqn:gradq}
-  \nabla_{\lambda} \log q_{\lambda} (\beta) = t(\beta) - \EE{t(\beta)}
-\end{align}
-Combining \ref{eqn:gradq} and \ref{eqn:g_fis_inf}
-\begin{align}
-  G(\lambda) = \nabla_{\lambda}^{2}a(\lambda) = a{''}(\lambda) \label{eqn:g_dd}
-\end{align}
-From \cite{hoffman2013stochastic}, equation of Euclidean gradient
-\begin{align}
-  \nabla_{\lambda}ELBO = a{''}(\lambda)\Big(\EE{\eta(\bx, \bz)} - \lambda\Big)
-  \label{eqn:elbo_euc_grad}
-\end{align}
-\TODO \comment{refresh \ref{eqn:elbo_euc_grad} with value in \cite{blei2016variational}} \\
-Combining \ref{eqn:g_inv_eqn}, \ref{eqn:elbo_euc_grad} and \ref{eqn:g_dd}
-\begin{align}
-  g(\lambda) = \widehat{\nabla_{\lambda}}ELBO &= \EE{\eta(\bx, \bz)} - \lambda \text{ and } \nonumber\\
-  \lambda_t &= \lambda_{t - 1} + \delta_t g(\lambda_{t - 1}) \nonumber\\
-  \Rightarrow \lambda_t &= (1 - \delta_t)\lambda_{t - 1} +  \delta_t  \EE{\eta(\bx, \bz)} 
-\end{align}
-\begin{algorithm}[h]
-\KwIn{A model $p$, variational family $q_{\phi(z)}, q_{\lambda}(z)$}
-\While{\text{ELBO is not converged}} {
-  \For{\text{each data point} i} {
-    Update $\varphi_i \gets \EEE{\lambda}{\eta_l(\beta, x_i)}$\\
-  }
-  \red{Update $\lambda \gets (1 - \delta_t)\lambda +
-                                \delta_t \EEE{q(\varphi)}{\eta_g(x, z)}$}\\
-}
-\caption{VI with conjugate family assumption}
-\label{alg:vi_nat_grad}
-\end{algorithm}
+  {\Big(\nabla_{\lambda} \log q_{\lambda} (\beta) \Big)}^\intercal}
+  \label{eqn:g_fis_inf}
+  \end{align}
+  $G(\lambda)$ is the Fisher information matrix. For our model class (conjugate exponential...)
+  We've
+  \begin{align} \label{eqn:gradq}
+    \nabla_{\lambda} \log q_{\lambda} (\beta) = t(\beta) - \EE{t(\beta)}
+  \end{align}
+  Combining \ref{eqn:gradq} and \ref{eqn:g_fis_inf}
+  \begin{align}
+    G(\lambda) = \nabla_{\lambda}^{2}a(\lambda) = a{''}(\lambda) \label{eqn:g_dd}
+  \end{align}
+  From \cite{hoffman2013stochastic}, equation of Euclidean gradient
+  \begin{align}
+    \nabla_{\lambda}ELBO = a{''}(\lambda)\Big(\EE{\eta(\bx, \bz)} - \lambda\Big)
+    \label{eqn:elbo_euc_grad}
+  \end{align}
+  \TODO \comment{refresh \ref{eqn:elbo_euc_grad} with value in \cite{blei2016variational}} \\
+  Combining \ref{eqn:g_inv_eqn}, \ref{eqn:elbo_euc_grad} and \ref{eqn:g_dd}
+  \begin{align}
+    g(\lambda) = \widehat{\nabla_{\lambda}}ELBO &= \EE{\eta(\bx, \bz)} - \lambda \text{ and } \nonumber\\
+    \lambda_t &= \lambda_{t - 1} + \delta_t g(\lambda_{t - 1}) \nonumber\\
+    \Rightarrow \lambda_t &= (1 - \delta_t)\lambda_{t - 1} +  \delta_t  \EE{\eta(\bx, \bz)} 
+  \end{align}
+  \begin{algorithm}[h]
+    \KwIn{A model $p$, variational family $q_{\phi(z)}, q_{\lambda}(z)$}
+    \While{\text{ELBO is not converged}} {
+      \For{\text{each data point} i} {
+        Update $\varphi_i \gets \EEE{\lambda}{\eta_l(\beta, x_i)}$\\
+      }
+      \red{Update $\lambda \gets (1 - \delta_t)\lambda +
+      \delta_t \EEE{q(\varphi)}{\eta_g(x, z)}$}\\
+    }
+    \caption{VI with conjugate family assumption}
+    \label{alg:vi_nat_grad}
+  \end{algorithm}
 
-\mypar{Stochastic Variational inference}
-in Algorithm \ref{alg:vi_nat_grad} line 2-4, we have to iterate over all data 
-to compute the new set of local variables $\varphi$. This does not scale well
-to large datasets. \cite{hoffman2013stochastic}
-So we have to use stochastic gradients. Noisy gradients $H$ of $f$ will converge
-to a local optimum as long as
-\begin{itemize}
-  \item $\EE{H} = \nabla f$
-  \item Step size $\delta_t$ st: $\sum_{1}^{\infty}\delta_t = \infty$ and
-  $\sum_{1}^{\infty}\delta_t^{2} < \infty$
-\end{itemize}
-Now,
-$$
+  \mypar{Stochastic Variational inference}
+  in Algorithm \ref{alg:vi_nat_grad} line 2-4, we have to iterate over all data 
+  to compute the new set of local variables $\varphi$. This does not scale well
+  to large datasets. \cite{hoffman2013stochastic}
+  So we have to use stochastic gradients. Noisy gradients $H$ of $f$ will converge
+  to a local optimum as long as
+  \begin{itemize}
+    \item $\EE{H} = \nabla f$
+    \item Step size $\delta_t$ st: $\sum_{1}^{\infty}\delta_t = \infty$ and
+      $\sum_{1}^{\infty}\delta_t^{2} < \infty$
+  \end{itemize}
+  Now,
+  $$
   \EE{\eta(\bx, \bz)} = \Big(\alpha_1 + \sum_{1}^{n}\EEE{q}{t(z_i, x_i)},
-                              n + \alpha_2 \Big)
-$$
-Noisy gradient by sampling
-\begin{enumerate}
-  \item Sample $t \sim Uniform(1, \ldots, n)$
-  \item Rescale 
-    \begin{align*}
-      g(\lambda) &= \Big(\alpha_1 + n\EEE{q}{t(z_t, x_t)},
-                    n + \alpha_2 \Big) - \lambda \\
-                  &=: \hat{\lambda} - \lambda
-    \end{align*}
-\end{enumerate}
-\begin{algorithm}[h]
-\KwIn{A model $p(\bx, \bz)$, data $\bx$}
-{\bf Initialize:}{variational family $q_{\phi(z)}, q_{\lambda}(z)$ with params $\lambda_{0}$}\\
-\KwResult{Global variational densities $q_{\lambda}(\beta)$}
-\While{Stopping criteria not met} {
-  \red{Sample $t \sim Uniform(1, \ldots, n)$} \\
-  \red{Update $\phi_t \gets \EEE{\lambda}{\eta_l(\beta, x_t)}$} \\
-  \red{Compute global param estimate $\hat{\lambda} = \EEE{\varphi}{\eta_g(z_t, x_t)}$} \\
-  \red{Update $\lambda \gets (1 - \delta_t)\lambda +
-          \delta_t \hat{\lambda}$} \\
-}
-\Return{$\lambda$}
-\caption{Stochastic VI}
-\label{alg:vi_stoc_grad}
-\end{algorithm}
+  n + \alpha_2 \Big)
+  $$
+  Noisy gradient by sampling
+  \begin{enumerate}
+    \item Sample $t \sim Uniform(1, \ldots, n)$
+    \item Rescale 
+      \begin{align*}
+        g(\lambda) &= \Big(\alpha_1 + n\EEE{q}{t(z_t, x_t)},
+        n + \alpha_2 \Big) - \lambda \\
+                   &=: \hat{\lambda} - \lambda
+        \end{align*}
+    \end{enumerate}
+    \begin{algorithm}[h]
+      \KwIn{A model $p(\bx, \bz)$, data $\bx$}
+      {\bf Initialize:}{variational family $q_{\phi(z)}, q_{\lambda}(z)$ with params $\lambda_{0}$}\\
+      \KwResult{Global variational densities $q_{\lambda}(\beta)$}
+      \While{Stopping criteria not met} {
+        \red{Sample $t \sim Uniform(1, \ldots, n)$} \\
+        \red{Update $\phi_t \gets \EEE{\lambda}{\eta_l(\beta, x_t)}$} \\
+        \red{Compute global param estimate $\hat{\lambda} = \EEE{\varphi}{\eta_g(z_t, x_t)}$} \\
+        \red{Update $\lambda \gets (1 - \delta_t)\lambda +
+        \delta_t \hat{\lambda}$} \\
+      }
+      \Return{$\lambda$}
+      \caption{Stochastic VI}
+      \label{alg:vi_stoc_grad}
+    \end{algorithm}
 
-Research on optimizing difficult variational objectives with Monte Carlo (MC)
-estimates. Write gradient of ELBO as expectation, compute MC estimates, use stochastic
-optimization with MC estimates. New approaches avoid any model-specific derivations,
-and are called 'Black-box' inference techniques. As examples, see - \cite{kingma2013auto}
-\cite{rezende2014stochastic} \cite{ranganath2014black} \cite{ranganath2016hierarchical}
-\cite{titsias2014doubly} \cite{kucukelbir2017automatic}
+    Research on optimizing difficult variational objectives with Monte Carlo (MC)
+    estimates. Write gradient of ELBO as expectation, compute MC estimates, use stochastic
+    optimization with MC estimates. New approaches avoid any model-specific derivations,
+    and are called 'Black-box' inference techniques. As examples, see - \cite{kingma2013auto}
+    \cite{rezende2014stochastic} \cite{ranganath2014black} \cite{ranganath2016hierarchical}
+    \cite{titsias2014doubly} \cite{kucukelbir2017automatic}
 
-$$
-  \text{ELBO} = \EEE{q_{\nu}}{\log p_{\theta}(z, x)} - \EEE{q}{\log q_{\nu}{z}}
-$$
-$\nu$ params of variational family, $\theta$ params of model. We need unbiased estimates
-of $\nabla_{\nu, \theta}ELBO$ to maximize ELBO.
+    $$
+    \text{ELBO} = \EEE{q_{\nu}}{\log p_{\theta}(z, x)} - \EEE{q}{\log q_{\nu}{z}}
+    $$
+    $\nu$ params of variational family, $\theta$ params of model. We need unbiased estimates
+    of $\nabla_{\nu, \theta}ELBO$ to maximize ELBO.
 
-\mypar{Black Box variational inference} \INPROGRESS \\
-  From \cite{ranganath2014black}
-  \begin{displayquote}
-    We will form the derivative of the objec-
-    tive as an expectation with respect to the variational
-    approximation and then sample from the variational ap-
-    proximation to get noisy but unbiased gradients, which
-    we use to update our parameters. For each sample, our
-    noisy gradient requires evaluating the joint distribution
-    of the observed and sampled variables, the variational
-    distribution, and the gradient of the log of the varia-
-    tional distribution. This is a black box method in that
-    the gradient of the log of the variational distribution
-    and sampling method can be derived once for each type
-    of variational distribution and reused for many models
-    and applications.
-  \end{displayquote}
-  \begin{displayquote}
-      \red{We will form the $\nabla ELBO$ as an $\EEE{q_\lambda}{...}$ 
-      and then sample $S$ samples from the $q_\lambda$ to get noisy but unbiased gradients (w.r.t $\lambda$), which
-      we use to update $\lambda$. For each sample, our
-      noisy gradient requires evaluating the $p(\bx, \bz_{S}), q(\bz_{S})$, and
-      $\nabla \log q(\bz_{S})$. This is a black box method in that
-      the $\nabla \log q(\bz_{S})$
+    \mypar{Black Box variational inference} \INPROGRESS \\
+    From \cite{ranganath2014black}
+    \begin{displayquote}
+      We will form the derivative of the objec-
+      tive as an expectation with respect to the variational
+      approximation and then sample from the variational ap-
+      proximation to get noisy but unbiased gradients, which
+      we use to update our parameters. For each sample, our
+      noisy gradient requires evaluating the joint distribution
+      of the observed and sampled variables, the variational
+      distribution, and the gradient of the log of the varia-
+      tional distribution. This is a black box method in that
+      the gradient of the log of the variational distribution
       and sampling method can be derived once for each type
       of variational distribution and reused for many models
+      and applications.
+    \end{displayquote}
+    \begin{displayquote}
+      \red{We will form the $\nabla ELBO$ as an $\EEE{q_\lambda}{...}$ 
+        and then sample $S$ samples from the $q_\lambda$ to get noisy but unbiased gradients (w.r.t $\lambda$), which
+        we use to update $\lambda$. For each sample, our
+        noisy gradient requires evaluating the $p(\bx, \bz_{S}), q(\bz_{S})$, and
+        $\nabla \log q(\bz_{S})$. This is a black box method in that
+        the $\nabla \log q(\bz_{S})$
+        and sampling method can be derived once for each type
+        of variational distribution and reused for many models
       and applications.}
-  \end{displayquote}
-Equation (2) of \cite{ranganath2014black}
-\begin{align}
-  \nabla_{\lambda}\mathcal{L} &= \EEE{q}{\nabla_{\lambda}\log q(z|\lambda) \Big(\log p(x, z) - \log q(z|\lambda\Big)} \label{eqn:bbvi_grad} \text{ where } \\
-  \mathcal{L}(\lambda) &\overset{\triangle}{=}  \EEE{q_{\lambda_{z}}}{\log p(x, z) - \log q(z)} \text{ (ELBO) } \nonumber
-\end{align}
-\comment{\href{https://github.com/hoangcuong2011/Good-Papers/blob/master/Black\%20Box\%20Variational\%20Inference.md}{here} it says that Equation 2/3 can be derived simply using the
-log trick but the authors use a complicated method in paper. Also derived in \cite{pml18}}
-and \cite{pgmai18}\\
-the gradient $\nabla_{\lambda}\log q(z|\lambda)$ of the log of a probability distribution
-is called the score function or REINFORCE \\
-Basic algorithm
-  \begin{flalign}
-  z_s &\sim q(z|\lambda) \text{ for } s \in {1..S} \nonumber\\
-  \nabla_{\lambda}\mathcal{L} &\approx \frac{1}{S} \sum_{s=1}^{S} \nabla_{\lambda}\log q(z_s | \lambda) 
-                    \Big(\log p(x, z_s) - \log q(z_s|\lambda)\Big)
-  \end{flalign}
-Rao-Blackwellization and smart Control Variates to control variance\\
-\comment{Variance still very high. Reparameterization and amortization come to rescue (See
-\href{https://www.youtube.com/watch?v=Dv86zdWjJKQ}{this} tutorial from David Blei)}
+    \end{displayquote}
+    Equation (2) of \cite{ranganath2014black}
+    \begin{align}
+      \nabla_{\lambda}\mathcal{L} &= \EEE{q}{\nabla_{\lambda}\log q(z|\lambda) \Big(\log p(x, z) - \log q(z|\lambda\Big)} \label{eqn:bbvi_grad} \text{ where } \\
+      \mathcal{L}(\lambda) &\overset{\triangle}{=}  \EEE{q_{\lambda_{z}}}{\log p(x, z) - \log q(z)} \text{ (ELBO) } \nonumber
+    \end{align}
+    \comment{\href{https://github.com/hoangcuong2011/Good-Papers/blob/master/Black\%20Box\%20Variational\%20Inference.md}{here} it says that Equation 2/3 can be derived simply using the
+    log trick but the authors use a complicated method in paper. Also derived in \cite{pml18}}
+    and \cite{pgmai18}\\
+    the gradient $\nabla_{\lambda}\log q(z|\lambda)$ of the log of a probability distribution
+    is called the score function or REINFORCE \\
+    Basic algorithm
+    \begin{flalign}
+      z_s &\sim q(z|\lambda) \text{ for } s \in {1..S} \nonumber\\
+      \nabla_{\lambda}\mathcal{L} &\approx \frac{1}{S} \sum_{s=1}^{S} \nabla_{\lambda}\log q(z_s | \lambda) 
+      \Big(\log p(x, z_s) - \log q(z_s|\lambda)\Big)
+    \end{flalign}
+    Rao-Blackwellization and smart Control Variates to control variance\\
+    \comment{Variance still very high. Reparameterization and amortization come to rescue (See
+    \href{https://www.youtube.com/watch?v=Dv86zdWjJKQ}{this} tutorial from David Blei)}
 
-\comment{Good notes on 
-  \href{http://www.it.uu.se/research/systems_and_control/education/2018/pml/lectures/VILectuteNotesPart2.pdf}{Stochastic VI}
-and \href{http://www.it.uu.se/research/systems_and_control/education/2018/pml/lectures/VILectuteNotesPart3.pdf}{Black Box VI} from \cite{pml18}} \\
+    \comment{Good notes on 
+      \href{http://www.it.uu.se/research/systems_and_control/education/2018/pml/lectures/VILectuteNotesPart2.pdf}{Stochastic VI}
+    and \href{http://www.it.uu.se/research/systems_and_control/education/2018/pml/lectures/VILectuteNotesPart3.pdf}{Black Box VI} from \cite{pml18}} \\
 
-\mypar{Reparameterization trick} 
-\\\TODO
+    \mypar{Reparameterization trick} 
+    \\\TODO
 
-\mypar{Boosting Variational inference} \cite{guo2016boosting} \INPROGRESS \\
-Iterative boosting by $q_{i + 1} = (1 - \gamma) q_i + \gamma h_i$.
-\comment{Very similar to Frank-Wolfe}. Optimization is to find optimal $\gamma$
-and $h_i$ at every step. $\gamma$ is very similar to line search method for
-\cite{locatello2018boosting} and the method is exactly same (stochastic gradient
-descent by taking expectations). For $h_i$ a \emph{Laplacian Gradient Boosting}
-technique is used.
+    \mypar{Boosting Variational inference} \cite{guo2016boosting} \INPROGRESS \\
+    Iterative boosting by $q_{i + 1} = (1 - \gamma) q_i + \gamma h_i$.
+    \comment{Very similar to Frank-Wolfe}. Optimization is to find optimal $\gamma$
+    and $h_i$ at every step. $\gamma$ is very similar to line search method for
+    \cite{locatello2018boosting} and the method is exactly same (stochastic gradient
+    descent by taking expectations). For $h_i$ a \emph{Laplacian Gradient Boosting}
+    technique is used.
 
-\mypar{Frank-Wolfe} \INPROGRESS
-  \cite{jaggi2013revisiting} \cite{pedregosa2018frank} 
-  \cite{pedregosa2018step} \cite{doi:10.1002/zamm.19730530723}
-\begin{algorithm}[h]
-  \textbf{Constrained Optimization:} $\min\limits_{x \in \data} f(\bx)$ \\
-  \For{$t \in \{0, \ldots, T\}$} {
-    $s^t \gets \argmin_{s \in \data}\langle \bs, \grad f(\bx^{t}) \rangle$ \\
-    $\bx^{t + 1} \gets \mathbf{UpdateRule}(\bx^t, s^t, t, f)$
-  }
-\caption{Frank-Wolfe}
-\label{alg:fw}
-\end{algorithm}
-\comment{Here $x, \mathcal{D} \equiv x, \mathcal{D} \equiv q, \mathcal{A}$}\\
-$\mathbf{UpdateRule}$ can be
-\begin{align}
-  q^{t + 1} &\gets (1 - \gamma) q^t + \gamma s^t = q^t + \gamma\overbrace{(s^t - q^t)}^{d_t} 
-\textrm{ where}\nonumber\\
-\mathbf{Variant 0:} 
-  \gamma &\gets \frac{2}{t + 2} \\
-\mathbf{Variant 1:}
-  \gamma &\gets \argmin\limits_{\gamma \in [0, 1]} f((1 - \gamma) q^t + \gamma s^t)
-  \label{eqn:update_lsearch} \\
-g_t &\gets -\langle \grad f(\bx_t), d_t \rangle \rangle \nonumber\\
-\mathbf{Exit condition:} g_t &< \delta \nonumber\\
-\mathbf{Variant 2:} \gamma &\gets \min \Big(\frac{g_t}{L ||d_t|| ^2}, 1\Big)
-\label{eqn:var2_update} \\
-\mathbf{Variant 3:} \nonumber\\
-  q^{t + 1} &\gets \argmin\limits_{q \in \bigcup_{i=1}^{t}{s^t}}f(q) \nonumber\\
-\end{align}
-\ref{eqn:var2_update} has variants \cite{pedregosa2018frank} \cite{Demyanov70} \TODO add more
-\red{$$
-\gamma \gets \min \Big\{\frac{g_t}{L\text{ diam}(\data) ^2}, 1\Big\}
-\label{eqn:var2b} \\
-$$}
+    \mypar{Frank-Wolfe} \INPROGRESS
+    \cite{jaggi2013revisiting} \cite{pedregosa2018frank} 
+    \cite{pedregosa2018step} \cite{Demyanov70}
+    \emph{Idea:} Approximate the objective funciton $f$ at iterate $\bx_t$ using
+    a linear function:
+    \begin{equation*}
+      \tilde{f}(\bs) := f(\bx_t) + \langle \grad f(\bx_t), \bs - \bx_t \rangle
+    \end{equation*}
+    Find $\bs$ which minimizes this Linear problem (LMO) and then move in that
+    direction by step size $\gamma$. \comment{Approximate solutions to the linear
+    problem also suffice}.
+    \begin{algorithm}[h]
+      \textbf{Constrained Optimization:} $\min\limits_{x \in \data} f(\bx)$ \\
+      $f$ is Convex, differentiable with L-Lipschitz gradient and domain $\data$
+      is Convex and compact \\
+      \For{$t \in \{0, \ldots, T\}$} {
+        $s^t \gets \argmin_{s \in \data}\langle \bs, \grad f(\bx^{t}) \rangle$ \\
+        $\bx^{t + 1} \gets \mathbf{UpdateRule}(\bx^t, s^t, t, f)$
+      }
+      \caption{Frank-Wolfe}
+      \label{alg:fw}
+    \end{algorithm}
+    \red{Here $x, \mathcal{D} \equiv q, \mathcal{A}$}\\
+    \begin{table}[]
+      \centering
+      \parbox{\linewidth}{
+        \begin{tabular}{|c|c|}
+          Constraint $\data$ & LMO problem  \\
+          \hline
+          norm $||x|| \leq 1$ & $-\partial ||\cdot||_{*}$ Subgradients of corresponding
+          dual norm \\
+          $l_1$ norm $||x||_{1} \leq 1$ & $-\partial ||\grad f(\bx_t)||_{\infty}$ \\
+          Trace norm $\underbrace{||X||_{tr} \leq 1}_{\text{sum of singular values}}$
+                                        & Operator norm
+                                        $\underbrace{s_t \in -||\grad f(X_t) ||_{op}}_{\text{Largest singular value}}$\\
+        \end{tabular}
+        \caption{LMO problem for well known constraints}
+        \label{tab:lmo}
+      }  
+    \end{table}
+    $\mathbf{UpdateRule}$ can be
+    \begin{align}
+      q^{t + 1} &\gets (1 - \gamma) q^t + \gamma s^t = q^t + \gamma\overbrace{(s^t - q^t)}^{d_t} 
+      \textrm{ where}\nonumber\\
+      \mathbf{Variant 0:} 
+      \gamma &\gets \frac{2}{t + 2} \\
+      \mathbf{Variant 1:}
+      \gamma &\gets \argmin\limits_{\gamma \in [0, 1]} f((1 - \gamma) q^t + \gamma s^t)
+      \label{eqn:update_lsearch} \\
+      g_t &\gets -\langle \grad f(\bx_t), d_t \rangle \rangle \nonumber\\
+      \mathbf{Exit condition:} g_t &< \delta \nonumber\\
+      \mathbf{Variant 2:} \gamma &\gets \min \Big(\frac{g_t}{L ||d_t|| ^2}, 1\Big)
+      \label{eqn:var2_update} \\
+      \mathbf{Variant 3:} \nonumber\\
+      q^{t + 1} &\gets \argmin\limits_{q \in \bigcup_{i=1}^{t}{s^t}}f(q)
+      \label{eqn:var3_fc} \\
+    \end{align}
+    \ref{eqn:var2_update} has variants \cite{pedregosa2018frank} \cite{Demyanov70} \TODO add more
+    \red{$$
+      \gamma \gets \min \Big\{\frac{g_t}{L\text{ diam}(\data) ^2}, 1\Big\}
+      \label{eqn:var2b} \\
+    $$}
 
-\mypar{Boosting Black Box Variational inference} \INPROGRESS \\
-Boosting introduced in \cite{guo2016boosting}, connection with FW in \cite{locatello2017boosting}.
-define a Linear Minimization Problem (LMO) as
-$
-\mathbf{LMO}_{\mathcal{A}}(y) := \argmin\limits_{s \in \mathcal{A}} \langle y, s \rangle
-$
-In line 3 of \ref{alg:fw}, rewrite it as
-$$
-s^t \gets (\delta-\text{Approx-})\mathbf{LMO}_{\mathcal{A}}(\grad f(q^t))
-$$
-Algorithm for LMO in section 4 of \cite{locatello2018boosting}. In Theorem 2,
-Curvature $\mathcal{C}_{f,\mathcal{A}}$ is bounded for $D^{KL}$ if param. space of
-densities in $\mathcal{A}$ is bounded. In section 3, a bounded curvature for
-  $D^{KL}$ is obtained.
-  
-{\bf Black box LMO}: \\
-\comment{In this case $f(q^t) = \kl{q^t(\bz) || p(\bx, \bz)}$ }. Assuming 
-$\theta$ are the parameters defining variational family $\mathcal{Q} \equiv \mathcal{A}$
-We've to find $\gradd{\theta}f(q^t)$, more specifically, we've to find 
-$$
-s^t \gets (\delta-\text{ Approx.}) \argmin\limits_{s \in \mathcal{A}}\langle 
-  \grad \kl{q^t(\bz) || p(\bx, \bz)}, s \rangle
-$$
-\TODO add how \cite{guo2016boosting} \cite{locatello2017boosting} deal with optimization of LMO. Also
-add the part about $\text{conv}(\mathcal{A})$ being sufficient instead of $\mathcal{A}$.\\
-Convergence of SGD not fully understood. To guarantee convergence of FW, solution of LMO should 
-not be degenerate. This translates to a constraint on $||s||_{\infty}$ which is not practical.
-Every pdf with bounded $||\cdot||_{\infty}$ has bounded entropy and the converse holds true in 
-most cases of interest. \comment{(Gaussian, Laplacian, ...)}. Assume $\mathcal{A}$ is such a family
-and $\bar{\mathcal{A}}$ is $\mathcal{A}$ w/o $l_{\infty}$ norm constraint.  \TODO ask
-$$
-\argmin\limits_{s \in \bar{\mathcal{A}}, \mathcal{H}(s) \geq -M}\langle \grad 
-\kl{q^t(\bz) || p(\bx, \bz)},
-s \rangle \orange{\overset{?}{\equiv}}
-  \argmin\limits_{s \in \bar{\mathcal{A}}, \mathcal{H}(s) \geq -M}\Big\langle s, 
-  \log \frac{q^t}{p} \Big\rangle
-$$
-Using Lagrange multiplier $\lambda$
-\begin{align}
-  \Bigg\langle s, \log \Big(\frac{s}{\sqrt[\lambda]{\frac{p}{q^t}}} \Big)\Bigg\rangle \nonumber\\
+    \mypar{Frank-Wolfe Convergence} \INPROGRESS
+    \begin{align}
+      \overbrace{g_t}^{Gap} &:= \langle \grad f(\bx_t), \bx_t - \bs_t \rangle \nonumber\\
+                            &\geq  \langle \grad f(\bx_t), \bx_t - \bx^{*} \rangle \nonumber\\
+                            &\geq \underbrace{f(\bx_t) - f(\bx^{*})}_{\epsilon_t} \hspace{4mm} \comment{Convexity} \\
+    \end{align}
+
+    Using quadratic upper bound \ref{eqn:quad_upper} \comment{ L-continous gradient
+    can be relaxed to this},
+    We get,
+    \begin{align}
+      f(\by)) &\leq f(\bx) + \langle \grad f(\bx), \by - \bx \rangle + \frac{L}{2}||\by - \bx||^2 \\
+      \Rightarrow f(\bx_{t+1}) = f\Big((1 - \gamma)\bx_t + \gamma \bs_t\Big) & \leq f(\bx_t) - \gamma g_t + 
+      \frac{L\gamma^2}{2}||\bs_t - \bx_t||^2 \nonumber\\
+                                                                             &\leq f(\bx_t) - \gamma \epsilon_t 
+                                                                             + \frac{L\gamma^2}{2}||\bs_t - \bx_t||^2 \nonumber\\
+      \Rightarrow \epsilon_{t + 1} &\leq  (1 - \gamma) \epsilon_t 
+      + \frac{L\gamma^2}{2}\data_t^2 \\
+                                   &\leq(1 - \gamma_t) \epsilon_t + \gamma_t^2 C 
+                                   \comment{\Big(= \frac{L}{2}diam(\data)\Big)}\\
+    \end{align}
+    \emph{Goal}: To show, for $\gamma_t = \frac{2}{t + 2}$
+    \begin{equation}
+      \epsilon_t \leq \frac{4C}{t + 2}
+    \end{equation}
+    Using induction, for $t = 0$, $\epsilon_0 = C \leq \frac{4C}{2}$. At step $t$
+    \begin{align*}
+      \epsilon_{t + 1} &\leq \Big(1 - \frac{2}{t + 2}\Big)\epsilon_t + \Big(\frac{2}{t + 2}\Big)^2 C \\
+                       &\leq \Big(\frac{t}{t + 2}\Big) \cdot \Big(\frac{4C}{t + 2}\Big) 
+                       + \Big(\frac{1}{t + 2}\Big) \cdot \Big(\frac{4C}{t + 2}\Big) \\
+                       &= \frac{4C}{t + 2} \frac{t + 1}{t + 2} \\
+                       &\leq \frac{4C}{t + 2} \frac{t + 2}{t + 3} \\
+                       &= \frac{4C}{t + 1 + 2} 
+    \end{align*}
+    \mypar{Revisiting Frank-Wolfe: Projection Free Sparse Convex Optimization} \cite{jaggi2013revisiting}
+    \INPROGRESS
+    Variants of FW in \ref{list:fw_var}
+    \begin{itemize} \label{list:fw_var}
+      \item {\bf Approximate LMO}: $\acute{\epsilon} := \frac{1}{2} \delta \gamma C_f$
+        additive approximate error
+      \item {\bf Fully Corrective}: in Equation \ref{eqn:var3_fc}, is only a degenerate
+        boosting as only one atom $\bs$ is chosen at each time. If we change the
+        search space to
+        $$
+        q^{t + 1} \gets \argmin\limits_{q \in \red{conv(\bigcup_{i=1}^{t}{s^t})}}f(q)
+        $$
+        Then the progress made per iteration would be more but the search problem
+        would not be much easier than the original problem
+    \end{itemize}
+    \emph{Curvature Constant} $C_f$ of a convex and differentiable $f$:
+    \begin{equation*}
+      C_f := \sum\limits_{\bx, \bs \in \data, \gamma \in [0, 1], \by = \bx + 
+        \gamma(\bs - \bx)} \frac{2}{\gamma^2}\Big(f(\by) - f(\bx) - 
+      \langle \by - \bx, \grad f(\bx) \rangle \Big)
+    \end{equation*}
+    Note that $C_f = \frac{2}{\gamma^2}\Big(f - \tilde{f}\Big)$ means that for bounded
+    $C_f$, deviation of $f$ from $\tilde{f}$ will also be bounded. $f - \tilde{f}$
+    is also called \emph{Bregman divergence}. If $\grad f$ is L-Lipschitz continuous
+    on $\data$ w.r.t some norm $||\cdot||$, then $C_f \leq 
+    \text{diam}_{||\cdot||}(\data^2)L$
+
+    \mypar{Boosting Black Box Variational inference} \INPROGRESS \\
+    Boosting introduced in \cite{guo2016boosting}, connection with FW in \cite{locatello2017boosting}.
+    define a Linear Minimization Problem (LMO) as
+    $
+    \mathbf{LMO}_{\mathcal{A}}(y) := \argmin\limits_{s \in \mathcal{A}} \langle y, s \rangle
+    $
+    In line 3 of \ref{alg:fw}, rewrite it as
+    $$
+    s^t \gets (\delta-\text{Approx-})\mathbf{LMO}_{\mathcal{A}}(\grad f(q^t))
+    $$
+    Algorithm for LMO in section 4 of \cite{locatello2018boosting}. In Theorem 2,
+    Curvature $\mathcal{C}_{f,\mathcal{A}}$ is bounded for $D^{KL}$ if param. space of
+    densities in $\mathcal{A}$ is bounded. In section 3, a bounded curvature for
+    $D^{KL}$ is obtained.
+
+    {\bf Black box LMO}: \\
+    \comment{In this case $f(q^t) = \kl{q^t(\bz) || p(\bx, \bz)}$ }. Assuming 
+    $\theta$ are the parameters defining variational family $\mathcal{Q} \equiv \mathcal{A}$
+    We've to find $\gradd{\theta}f(q^t)$, more specifically, we've to find 
+    $$
+    s^t \gets (\delta-\text{ Approx.}) \argmin\limits_{s \in \mathcal{A}}\langle 
+    \grad \kl{q^t(\bz) || p(\bx, \bz)}, s \rangle
+    $$
+    \TODO add how \cite{guo2016boosting} \cite{locatello2017boosting} deal with optimization of LMO. Also
+    add the part about $\text{conv}(\mathcal{A})$ being sufficient instead of $\mathcal{A}$.\\
+    Convergence of SGD not fully understood. To guarantee convergence of FW, solution of LMO should 
+    not be degenerate. This translates to a constraint on $||s||_{\infty}$ which is not practical.
+    Every pdf with bounded $||\cdot||_{\infty}$ has bounded entropy and the converse holds true in 
+    most cases of interest. \comment{(Gaussian, Laplacian, ...)}. Assume $\mathcal{A}$ is such a family
+    and $\bar{\mathcal{A}}$ is $\mathcal{A}$ w/o $l_{\infty}$ norm constraint.  \TODO ask
+    $$
+    \argmin\limits_{s \in \bar{\mathcal{A}}, \mathcal{H}(s) \geq -M}\langle \grad 
+    \kl{q^t(\bz) || p(\bx, \bz)},
+    s \rangle \orange{\overset{?}{\equiv}}
+    \argmin\limits_{s \in \bar{\mathcal{A}}, \mathcal{H}(s) \geq -M}\Big\langle s, 
+    \log \frac{q^t}{p} \Big\rangle
+    $$
+    Using Lagrange multiplier $\lambda$
+    \begin{align}
+      \Bigg\langle s, \log \Big(\frac{s}{\sqrt[\lambda]{\frac{p}{q^t}}} \Big)\Bigg\rangle \nonumber\\
     &\equiv \argmin\limits_{s \in \bar{\mathcal{A}}}\kl{s||{\sqrt[\lambda]{\frac{p}{q^t}}} Z} \nonumber\\
-  \text{RELBO}(s, \lambda) &:= \EEE{s}{\log p} - \EEE{s}{\log q^t} - \lambda\EEE{s}{\log s}
-\end{align}
-For true LMO solution, will need to maximize for $\lambda$. Might end in saddle, fix or slowly decrease
-with time $\frac{1}{\sqrt{t + 1}}$
+      \text{RELBO}(s, \lambda) &:= \EEE{s}{\log p} - \EEE{s}{\log q^t} - \lambda\EEE{s}{\log s}
+    \end{align}
+    For true LMO solution, will need to maximize for $\lambda$. Might end in saddle, fix or slowly decrease
+    with time $\frac{1}{\sqrt{t + 1}}$
+
 

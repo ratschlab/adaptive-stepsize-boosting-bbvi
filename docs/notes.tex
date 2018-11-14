@@ -1,0 +1,91 @@
+  \section{Math notes}
+  \mypar{Taylor series multivariate}
+  \begin{equation}
+    f(\boldsymbol{r}_0+\boldsymbol{a}t) = f(\boldsymbol{r}_0) +  [\boldsymbol{a}
+      \cdot \nabla f(\boldsymbol{r})] \Big|_{\boldsymbol{r}=\boldsymbol{r}_0}t 
+        + \frac{1}{2!} [\boldsymbol{a} \cdot \nabla][\boldsymbol{a} \cdot
+          \nabla]f(\boldsymbol{r}) \Big|_{\boldsymbol{r}=
+            \boldsymbol{r}_0} t^2 + \ldots
+  \end{equation}
+  \mypar{Shannon Entropy} \\
+  Self information of event x $= x$ is defined as $I(x) := -\log P(x)$
+  $$
+  H(x) = \EEE{x \sim P}{I(x)} = -\EEE{x \sim P}{\log P(x)}
+  $$
+  \mypar{Cramer-Rao lower bound} \cite{math-stat16} 
+  Suppose $\theta$ is an unknown deterministic parameter which is to be estimated from
+  measurements $x$, distributed according to some pdf $f(x; \theta)$. The variance of any 
+  \textit{unbiased estimator} $\hat{\theta}$ of $\theta$ is then bounded by reciprocal of
+  Fischer Information $I(\theta)$:
+  \begin{align}
+    \text{var}(\hat{\theta}) &\geq \frac{1}{I(\theta)} \text{ where }\nonumber\\
+    I(\theta) &= \EE{\Big(\frac{\partial l(x; \theta)}{\partial \theta}\Big)^2} \nonumber\\
+         &= -\EE{\frac{\partial^2 l(x; \theta)}{\partial \theta^2}} \nonumber
+  \end{align}
+  {\bf Note}: See Wikipedia for other more general versions
+
+  \mypar{Lipschitz continuity, smoothness, etc.}
+  $f$ is $M-$\emph{Lipschitz continuous} given M if 
+  $$|f(x) - f(y)| \leq M|x-y| \forall x,y \in \realline$$. 
+  If $f$ is differentiable, Lipschitz continuity
+  says that $f$ has bounded derivative. 
+
+  $f$ is $L$-\emph{Lipschitz smooth} if its derivatives are Lipschitz continuous
+  with $L$. This is called smoothness type $C^{1,1}$ i.e 
+  $$\forall x, y \in \realline, ||\grad f(x) - \grad f(y)|| \leq L||x-y||$$
+  The definition does not assume convexity of $f$. Some other equivalent conditions
+  are: \href{https://xingyuzhou.org/blog/notes/Lipschitz-gradient}{on here}.
+  \begin{align}
+    g(x) = \frac{L}{2}x^\intercal x - f(x) \text{ is convex} \\
+    f(y) \leq f(x) + \grad f(x)^\intercal (y-x) + \frac{L}{2}||y-x||^2, \forall x,y 
+      \label{eqn:quad_upper}\\
+    (\grad f(x) - \grad f(y))^\intercal (x-y) \leq L||x-y||^2, \forall x,y \\
+    f(\alpha x + (1 - \alpha)y) \geq \alpha f(x) + (1 - \alpha)f(y) - 
+                                  \frac{\alpha(1 - \alpha)L}{2}||x-y||^2 
+                                  \forall x,y \in \realline, \alpha \in [0, 1]\\
+    \cdots
+  \end{align}
+
+  \emph{Strong Convextiy}: $f$ is $\alpha$-strongly convex if 
+  $$\grad^2f(x) \succeq \alpha I \forall x$$
+  Also
+  \begin{equation} \label{eqn:conv}
+    f(x + y) \geq f(x) + y^\intercal \grad f(x) + \frac{\alpha}{2}||x-y||^2
+  \end{equation}
+  \ref{eqn:conv} is equivalent to saying $g(x) = f(x) - \frac{\alpha}{2}||x||^2$
+  is convex.. Latter is equivalent to $\grad^2 g \succeq 0 \equiv \grad^2 f \succeq \alpha I$.
+  \href{https://math.stackexchange.com/questions/673898/lipschitz-smoothness-strong-convexity-and-the-hessian}
+  {more info here} 
+
+  \red{Note:}l- strong convexity can be written as 
+  \begin{equation}
+    \label{eqn:str_cvx}
+    f(y) \geq f(x) + \grad f(x)^\intercal (y-x) + \frac{l}{2}||y-x||^2
+  \end{equation}
+  Equation \ref{eqn:str_cvx} is direct contrast to \ref{eqn:quad_upper}. 
+  $\frac{L}{l}$ is called condition number of matrix.
+
+  \newpage
+  \section{Code Notes}
+  Normal distribution edward
+
+  \begin{minted}{python}
+  from edward.models import Normal
+  from keras.layers import Dense
+  
+  hidden = Dense(256, activation='relu')(x_ph)
+  qz = Normal(loc=Dense(10)(hidden),
+  scale=Dense(10, activation='softplus')(hidden))
+  \end{minted}
+
+  \section{Web pages}
+  \begin{enumerate}
+    \item \href{http://blog.mrtz.org/2013/09/07/the-zen-of-gradient-descent.html}
+  {Zen of gradient descent with intro to Nexterov Method}  \\
+    \item \href{https://blogs.princeton.edu/imabandit/2013/04/01/acceleratedgradientdescent/}
+  {I am a bandit Nesterov accelerated} 
+    \item \href{http://www.stat.cmu.edu/~ryantibs/convexopt-S15/scribes/23-cond-grad-scribed.pdf}
+  {CMU Stats FW lecture} \label{web:cmu}
+  \end{enumerate}
+
+

@@ -30,7 +30,7 @@
   colorlinks,
   linkcolor={MidnightBlue},
   citecolor={blue},
-  urlcolor={MidnightBlue}
+  urlcolor={violet}
 }
 
 \usepackage{hyperref}
@@ -64,6 +64,7 @@
 
 \newcommand{\bm}{\mathbf{m}}
 \newcommand{\bs}{\mathbf{s}}
+\newcommand{\bq}{\mathbf{q}}
 
 \newcommand{\bw}{\mathbf{w}}
 \newcommand{\bx}{\mathbf{x}}
@@ -128,83 +129,64 @@
 
 \title{
   {\bf title of the big homework }\\
-  \large Big homework in big course }
+\large Big homework in big course }
 \author{Saurav Shekhar, (16-947-921)\\
-  \href{mailto:shekhars@student.ethz.ch}{shekhars@student.ethz.ch}}
+\href{mailto:shekhars@student.ethz.ch}{shekhars@student.ethz.ch}}
 \date{\today}
 
 \begin{document}
 %  \tableofcontents
-  \maketitle
-  \begin{abstract}
-    All notes regarding my masters thesis project
-  \end{abstract}
-  
-  \section{External links}
-  \begin{itemize}
-    \item \href{https://docs.google.com/document/d/1GMczTKs5-JKIgxfFOKv1yJNKLoUHZ0pqwR15xZcgyYQ/edit?usp=sharing}{Thesis pre proposal}
-    \item \href{https://docs.google.com/document/d/1Ytcuj1QJ8Xs5gzXVYbvcsjwsGGyz7HEg0_nCRAXjbgg/edit}{Tasks document}
-    \item \href{https://gitlab.ethz.ch/shekhars/msc-thesis}{Gitlab repository} \comment{might be removed}
-    \item \href{https://www.overleaf.com/9925566564xbszbcfbycnd}{Overleaf project} \comment{not regularly updated}
-  \end{itemize}
+\maketitle
+\begin{abstract}
+  All notes regarding my masters thesis project
+\end{abstract}
 
-  \input{literature} \newpage
-  
-  \input{ideas_and_results} \newpage
+\section{External links}
+\begin{itemize}
+  \item \href{https://docs.google.com/document/d/1GMczTKs5-JKIgxfFOKv1yJNKLoUHZ0pqwR15xZcgyYQ/edit?usp=sharing}{Thesis pre proposal}
+  \item \href{https://docs.google.com/document/d/1Ytcuj1QJ8Xs5gzXVYbvcsjwsGGyz7HEg0_nCRAXjbgg/edit}{Tasks document}
+  \item \href{https://gitlab.ethz.ch/shekhars/msc-thesis}{Gitlab repository} \comment{might be removed}
+  \item \href{https://www.overleaf.com/9925566564xbszbcfbycnd}{Overleaf project} \comment{not regularly updated}
+\end{itemize}
 
-  \section{Math notes}
-  \mypar{Shannon Entropy} \\
-  Self information of event x $= x$ is defined as $I(x) := -\log P(x)$
-  $$
-  H(x) = \EEE{x \sim P}{I(x)} = -\EEE{x \sim P}{\log P(x)}
-  $$
-  \mypar{Cramer-Rao lower bound} \cite{math-stat16} 
-  Suppose $\theta$ is an unknown deterministic parameter which is to be estimated from
-  measurements $x$, distributed according to some pdf $f(x; \theta)$. The variance of any 
-  \textit{unbiased estimator} $\hat{\theta}$ of $\theta$ is then bounded by reciprocal of
-  Fischer Information $I(\theta)$:
-  \begin{align}
-    \text{var}(\hat{\theta}) &\geq \frac{1}{I(\theta)} \text{ where }\nonumber\\
-    I(\theta) &= \EE{\Big(\frac{\partial l(x; \theta)}{\partial \theta}\Big)^2} \nonumber\\
-         &= -\EE{\frac{\partial^2 l(x; \theta)}{\partial \theta^2}} \nonumber
-  \end{align}
-  {\bf Note}: See Wikipedia for other more general versions
+\input{notes} \newpage
 
+\input{literature} \newpage
 
-  \newpage
-  \section{Code Notes}
-  Normal distribution edward
+\input{ideas_and_results} \newpage
 
-  \begin{minted}{python}
-  from edward.models import Normal
-  from keras.layers import Dense
-  
-  hidden = Dense(256, activation='relu')(x_ph)
-  qz = Normal(loc=Dense(10)(hidden),
-  scale=Dense(10, activation='softplus')(hidden))
-  \end{minted}
-  
-  \newpage
-  \bibliographystyle{apalike}
-  \bibliography{refs}
- 
-  
- %$$
- %w_{t + 1} - w_{t} = \mu(w_t - w_{t - 1}) - \alpha_t \nabla_w f(w_t, z)
- %$$
-  
-  %\begin{table}[]
-  %  \centering
-  %  \parbox{\linewidth}{
-  %    \begin{tabular}{c|c}
-  %      OP & Latency  \\
-  %      \hline
-  %      mul & 5 \\
-  %    \end{tabular}
-  %    \caption{Mul}
-  %    \label{tab:51}
-  %  }  
-  %\end{table}
-  
-  %\inputminted[firstline=1,lastline=200]{python}{code/boosting_bbvi/core/relbo.py}
+\newpage
+\bibliographystyle{apalike}
+\bibliography{refs}
+
+%% see optidef package
+%\begin{equation*}
+%  \begin{aligned}
+%    & \underset{X}{\text{minimize}}
+%    & & \mathrm{trace}(X) \\
+%    & \text{subject to}
+%    & & X_{ij} = M_{ij}, \; (i,j) \in \Omega, \\
+%    &&& X \succeq 0.
+%  \end{aligned}
+%\end{equation*}
+
+%$$
+%w_{t + 1} - w_{t} = \mu(w_t - w_{t - 1}) - \alpha_t \nabla_w f(w_t, z)
+%$$
+
+%\begin{table}[]
+%  \centering
+%  \parbox{\linewidth}{
+%    \begin{tabular}{c|c}
+%      OP & Latency  \\
+%      \hline
+%      mul & 5 \\
+%    \end{tabular}
+%    \caption{Mul}
+%    \label{tab:51}
+%  }  
+%\end{table}
+
+%\inputminted[firstline=1,lastline=200]{python}{code/boosting_bbvi/core/relbo.py}
 \end{document}
+

@@ -1,4 +1,3 @@
-#!/usr/bin/python
 """
 Plot multiple 1d mixture models
 
@@ -18,6 +17,7 @@ import sys
 import numpy as np
 import scipy.stats as stats
 import plot_utils as utils
+from plot_utils import eprint, debug
 
 from absl import app
 from absl import flags
@@ -56,10 +56,6 @@ flags.DEFINE_boolean('widegrid', False, 'range for the x-axis')
 flags.DEFINE_boolean('grid2d', False, '3D plot')
 flags.DEFINE_boolean('bars', False,
                      'plot bar chart (loc, weight) for each component')
-
-
-def eprint(*args, **kwargs):
-    print(*args, file=sys.stderr, **kwargs)
 
 
 def construct_mixture_from_params(**kwargs):
@@ -148,37 +144,35 @@ def main(argv):
             ax.pcolormesh(
                 gridx, gridy, xprobs.reshape(gridx.shape), cmap='Blues')
         else:
+            debug("shape of grid, xprobs", grid.shape, xprobs.shape)
+            debug(xprobs[10:14])
             ax.plot(grid, xprobs, label='target', linewidth=2.0)
 
         if len(FLAGS.qt) == 0:
             eprint(
-                "provide some qts to the `--qt` option if you would like to plot them"
+                "provide some qts to the `--qt` option if you would like to "
+                "plot them"
             )
 
         for i, (qt_filename, label) in enumerate(zip(FLAGS.qt, labels)):
-            eprint("visualizing %s" % qt_filename)
+            debug("visualizing %s" % qt_filename)
             qt = deserialize_mixture_from_file(qt_filename)
             qtprobs = tf.exp(qt.log_prob(grid))
             qtprobs = qtprobs.eval()
             if FLAGS.grid2d:
                 ax2 = fig.add_subplot(212)
                 ax2.pcolormesh(
-                    gridx,
-                    gridy,
-                    qtprobs.reshape(gridx.shape),
-                    cmap='Greens')
-                #ax2.pcolormesh(
-                #    gridx,
-                #    gridy,
-                #    qtprobs.reshape(gridx.shape),
-                #    cmap='Greens',
-                #    alpha=0.3)
+                    gridx, gridy, qtprobs.reshape(gridx.shape), cmap='Greens')
             else:
+                debug("shape of grid, qtprobs, %s" % styles[i % len(styles)],
+                       grid.shape, qtprobs.shape)
+                debug(qtprobs[10:14])
                 ax.plot(
-                    np.squeeze(grid),
-                    np.squeeze(qtprobs),
+                    grid,
+                    qtprobs,
                     styles[i % len(styles)],
-                    label=label)
+                    label=label,
+                    linewidth=2.0)
 
         if len(FLAGS.qt) == 1 and FLAGS.bars:
             locs = [comp.loc.eval() for comp in qt.components]

@@ -1,3 +1,6 @@
+# TODO(sauravshekhar) not working correctly, line search is terminating only
+# after 1 iteration even though n_line_search_iter is not 1. Maybe projection
+# is going wrong.
 """
 Run Black Box relbo
 
@@ -5,7 +8,7 @@ Example usage
 
 python scripts/mixture_model_relbo.py \
         --relbo_reg 1.0 \
-        --relbo_annlear linear \
+        --relbo_anneal linear \
         --fw_variant fixed \
         --outdir=${TD}/2d \
         --n_fw_iter=10 \
@@ -14,18 +17,10 @@ python scripts/mixture_model_relbo.py \
 
 """
 
-import boosting_bbvi.core.utils as utils
-logger = utils.get_logger()
-
 import os
 import sys
 import numpy as np
 import time
-
-import matplotlib
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
-plt.style.use('ggplot')
 
 import tensorflow as tf
 
@@ -38,8 +33,12 @@ import copy
 import scipy.stats as stats
 from scipy.misc import logsumexp as logsumexp
 
+sys.path.append(os.path.join(os.path.dirname(__file__), "..", ".."))
 import boosting_bbvi.core.relbo as relbo
 from boosting_bbvi.core.infinite_mixture import InfiniteMixtureScipy
+import boosting_bbvi.core.utils as utils
+logger = utils.get_logger()
+
 
 flags = tf.app.flags
 FLAGS = flags.FLAGS
@@ -48,6 +47,12 @@ flags.DEFINE_string('outdir', '/tmp',
 flags.DEFINE_integer('seed', 0, 'The random seed to use for everything.')
 flags.DEFINE_integer('n_fw_iter', 100, '')
 flags.DEFINE_integer('LMO_iter', 1000, '')
+flags.DEFINE_integer(
+    'n_line_search_samples', 10,
+    'Number of samples for approximating gradient in line search')
+flags.DEFINE_integer(
+    'n_line_search_iter', 10,
+    'Number of iterations line search gradient descent')
 flags.DEFINE_string('exp', 'mixture',
                     'select from [mixture, s_and_s (aka spike and slab), many]')
 flags.DEFINE_string(
@@ -135,26 +140,27 @@ def elbo(q, p, n_samples=1000):
     return avg, std
 
 
-def setup_outdir():
-    outdir = FLAGS.outdir
+def setup_outdir(outdir=None):
+    if outdir == None:
+        outdir = FLAGS.outdir
     outdir = os.path.expanduser(outdir)
     os.makedirs(outdir, exist_ok=True)
     return outdir
 
 
 def line_search_dkl(weights, locs, diags, mu_s, cov_s, x, k):
-    """Perform line search for the best step size gamma.
+    """Performs line search for the best step size gamma.
     
     Uses gradient ascent to find gamma that minimizes
     KL(q_t + gamma (s - q_t) || p)
     
     Args:
-        weights: weights of mixture components of q_t
-        locs: means of mixture components of q_t
-        diags: deviations of mixture components of q_t
-        mu_s: mean for LMO Solution s
-        cov_s: cov matrix for LMO solution s
-        x: target distribution p
+        weights: [k], weights of mixture components of q_t
+        locs: [k x dim], means of mixture components of q_t
+        diags: [k x dim], deviations of mixture components of q_t
+        mu_s: [dim], mean for LMO Solution s
+        cov_s: [dim], cov matrix for LMO solution s
+        x: edward.model, target distribution p
         k: iteration number of Frank-Wolfe
     Returns:
        Computed gamma
@@ -162,7 +168,7 @@ def line_search_dkl(weights, locs, diags, mu_s, cov_s, x, k):
     def softmax(v):
         return np.log(1 + np.exp(v))
     # no. of samples to approximate $\nabla_{\gamma}$
-    N_samples = 10
+    N_samples = FLAGS.n_line_search_samples
     # Create current iter $q_t$
     weights = [weights]
     qt_comps = [
@@ -193,8 +199,10 @@ def line_search_dkl(weights, locs, diags, mu_s, cov_s, x, k):
     # initialize $\gamma$
     gamma = 2. / (k + 2.)
     # no. steps of gradient ascent
-    n_steps = 10
+    n_steps = FLAGS.n_line_search_iter
     prog_bar = ed.util.Progbar(n_steps)
+    # storing gradients for analysis
+    grad_gamma = []
     for it in range(n_steps):
         print("line_search iter %d, %.5f" % (it, gamma))
         new_weights = copy.copy(weights)
@@ -208,26 +216,29 @@ def line_search_dkl(weights, locs, diags, mu_s, cov_s, x, k):
         # Computes $\mathbb{E}[...] \propto \sum_{v}{\log p - \log q_{t + 1}^{\gamma}}$
         def px_qx_ratio_log_prob(v):
             Lambda = 1.
-            ret = x.log_prob([v]).eval()[0] - q_next.log_prob(v)
+            ret = x.log_prob([v]).eval() - q_next.log_prob(v)
             ret /= Lambda
             return ret
         # Samples w.r.t s
-        rez_s = [
+        rez_s = np.asarray([
             px_qx_ratio_log_prob(sample_s[ss]) for ss in range(len(sample_s))
-        ]
+        ])
         # Samples w.r.t $q_{t+1}$
-        rez_q = [
+        rez_q = np.asarray([
             px_qx_ratio_log_prob(sample_q[ss]) for ss in range(len(sample_q))
-        ]
-        # TODO(sauravshekhar) measure how noisy gradients are
+        ])
+        grad_gamma.append({'E_s': rez_s, 'E_q': rez_q, 'gamma': gamma})
         # Gradient ascent step, step size decreasing as $\frac{1}{it + 1}$
-        gamma = gamma + 0.1 * (sum(rez_s) - sum(rez_q)) / (N_samples *
-                                                           (it + 1.))
-        # Projecting it back to [0, 1], too small range?
-        # FIXME(sauravshekhar) if projected to 0, all iterations will be same?
+        gamma = gamma + 0.1 * (np.sum(rez_s) - np.sum(rez_q)) / (N_samples *
+                                                                 (it + 1.))
+        # Projecting it back to [0, 1]
         if gamma >= 1 or gamma <= 0:
             gamma = max(min(gamma, 1.), 0.)
             break
+    goutdir = setup_outdir(os.path.join(FLAGS.outdir, 'gradients'))
+    g_outfile = os.path.join(goutdir, 'line_search_samples_%d.npy.%d' % (N_samples, k))
+    logger.info('saving line search data to, %s' % g_outfile)
+    np.save(g_outfile, grad_gamma)
     return gamma
 
 
