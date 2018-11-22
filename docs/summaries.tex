@@ -6,9 +6,11 @@
 \usepackage[ruled,linesnumbered]{algorithm2e}
 \usepackage[font=small,skip=4pt]{caption}
 \usepackage{subcaption}
+\usepackage{subfiles}
 \usepackage{csquotes}
 \usepackage{pdfpages}
 \usepackage{minted}
+\usepackage{todonotes}
 \setminted[python]{
   breaklines=true,
   frame=lines,
@@ -32,17 +34,16 @@
   citecolor={blue},
   urlcolor={violet}
 }
-
 \usepackage{hyperref}
 
+\def\biblio{\newpage\bibliographystyle{apalike}\bibliography{refs}}
 % Example definitions.
 % --------------------
 % nice symbols for real and complex numbers
 \newcommand{\R}[0]{\mathbb{R}}
 \newcommand{\C}[0]{\mathbb{C}}
-\newcommand{\TODO}{\hl{\textbf{TODO}}}
-\newcommand{\INPROGRESS}{\sethlcolor{cyan}\hl{\textbf{INPROGRESS}}\sethlcolor{yellow}}
-\newcommand{\comment}[1]{\textcolor{OliveGreen}{#1}}
+\newcommand{\TODO}{\todo[inline]{todo}}
+\newcommand{\INPROGRESS}{\todo[color=yellow,inline]{in progress}}
 
 % definitions from Variational inference: A review for statisticians
 \newcommand{\red}[1]{\textcolor{BrickRed}{#1}}
@@ -52,6 +53,7 @@
 \newcommand{\magenta}[1]{\textcolor{RubineRed}{#1}}
 \newcommand{\teal}[1]{\textcolor{TealBlue}{#1}}
 \newcommand{\gray}[1]{\textcolor{black!60}{#1}}
+\newcommand{\comm}[1]{\textcolor{OliveGreen}{#1}}
 
 \DeclareRobustCommand{\mb}[1]{\ensuremath{\boldsymbol{\mathbf{#1}}}}
 
@@ -121,6 +123,7 @@
 \newcommand{\loglik}{\mathcal{L}}
 \newcommand{\nw}{\textrm{new}}
 \newcommand{\data}{\mathcal{D}}
+\newcommand{\family}{\mathcal{A}}
 
 \newcommand{\Gam}{\textrm{Gam}}
 
@@ -128,13 +131,14 @@
 \newcommand{\mypar}[1]{{\bf #1.}}
 
 \title{
-  {\bf title of the big homework }\\
-\large Big homework in big course }
+  {\bf Notes }\\
+\large MSc Thesis }
 \author{Saurav Shekhar, (16-947-921)\\
 \href{mailto:shekhars@student.ethz.ch}{shekhars@student.ethz.ch}}
 \date{\today}
 
 \begin{document}
+\def\biblio{}
 %  \tableofcontents
 \maketitle
 \begin{abstract}
@@ -149,44 +153,14 @@
   \item \href{https://www.overleaf.com/9925566564xbszbcfbycnd}{Overleaf project} \comment{not regularly updated}
 \end{itemize}
 
-\input{notes} \newpage
+\subfile{notes} \newpage
 
-\input{literature} \newpage
+\subfile{literature} \newpage
 
-\input{ideas_and_results} \newpage
+\subfile{ideas_and_results} \newpage
 
 \newpage
 \bibliographystyle{apalike}
 \bibliography{refs}
-
-%% see optidef package
-%\begin{equation*}
-%  \begin{aligned}
-%    & \underset{X}{\text{minimize}}
-%    & & \mathrm{trace}(X) \\
-%    & \text{subject to}
-%    & & X_{ij} = M_{ij}, \; (i,j) \in \Omega, \\
-%    &&& X \succeq 0.
-%  \end{aligned}
-%\end{equation*}
-
-%$$
-%w_{t + 1} - w_{t} = \mu(w_t - w_{t - 1}) - \alpha_t \nabla_w f(w_t, z)
-%$$
-
-%\begin{table}[]
-%  \centering
-%  \parbox{\linewidth}{
-%    \begin{tabular}{c|c}
-%      OP & Latency  \\
-%      \hline
-%      mul & 5 \\
-%    \end{tabular}
-%    \caption{Mul}
-%    \label{tab:51}
-%  }  
-%\end{table}
-
-%\inputminted[firstline=1,lastline=200]{python}{code/boosting_bbvi/core/relbo.py}
 \end{document}
 

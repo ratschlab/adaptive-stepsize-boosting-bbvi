@@ -8,7 +8,8 @@ __pycache__/
 *.log
 *.out
 *.gz
-_minted-summaries/
+*.bbl
+_minted-*
 
 # Distribution / packaging
 .Python
