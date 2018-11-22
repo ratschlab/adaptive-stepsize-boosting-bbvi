@@ -16,8 +16,9 @@ import os
 import sys
 import numpy as np
 import scipy.stats as stats
-import plot_utils as utils
-from plot_utils import eprint, debug
+
+sys.path.append(os.path.join(os.path.dirname(__file__), "..", ".."))
+from boosting_bbvi.core.utils import eprint, debug
 
 from absl import app
 from absl import flags
@@ -34,6 +35,7 @@ plt.rcParams['lines.color'] = 'blue'
 import tensorflow as tf
 from edward.models import Categorical, MultivariateNormalDiag, Normal, Mixture
 
+sys.path.append(os.path.join(os.path.dirname(__file__), "..", ".."))
 from boosting_bbvi.core.infinite_mixture import InfiniteMixtureScipy
 
 FLAGS = flags.FLAGS
@@ -145,7 +147,6 @@ def main(argv):
                 gridx, gridy, xprobs.reshape(gridx.shape), cmap='Blues')
         else:
             debug("shape of grid, xprobs", grid.shape, xprobs.shape)
-            debug(xprobs[10:14])
             ax.plot(grid, xprobs, label='target', linewidth=2.0)
 
         if len(FLAGS.qt) == 0:
@@ -166,7 +167,6 @@ def main(argv):
             else:
                 debug("shape of grid, qtprobs, %s" % styles[i % len(styles)],
                        grid.shape, qtprobs.shape)
-                debug(qtprobs[10:14])
                 ax.plot(
                     grid,
                     qtprobs,

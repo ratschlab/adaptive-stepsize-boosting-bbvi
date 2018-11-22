@@ -6,6 +6,8 @@ import tensorflow as tf
 import scipy.stats
 import random
 
+sys.path.append(os.path.join(os.path.dirname(__file__), "..", ".."))
+import boosting_bbvi.core.opt as opt
 import boosting_bbvi.scripts.mixture_model_relbo as mixture_model_relbo
 
 def main():
@@ -30,7 +32,7 @@ def main():
 
     sess = tf.InteractiveSession()
     with sess.as_default():
-        mixture_model_relbo.fully_corrective(mix, x)
+        opt.fully_corrective(mix, x)
 
 if __name__ == "__main__":
     main()

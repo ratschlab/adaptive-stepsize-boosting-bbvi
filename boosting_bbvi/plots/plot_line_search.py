@@ -9,12 +9,13 @@ Usage:
 
 from __future__ import print_function
 
-import os
-import sys
 import numpy as np
 import scipy.stats as stats
-import plot_utils as utils
-from plot_utils import eprint, debug, plot_hline
+from plot_utils import plot_hline
+
+import os, sys
+sys.path.append(os.path.join(os.path.dirname(__file__), "..", ".."))
+from boosting_bbvi.core.utils import eprint, debug
 
 from absl import app
 from absl import flags

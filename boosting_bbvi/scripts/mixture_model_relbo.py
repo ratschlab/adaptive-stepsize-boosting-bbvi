@@ -29,14 +29,13 @@ from edward.models import (Categorical, Dirichlet, Empirical, InverseGamma,
                            Mixture)
 
 import edward as ed
-import copy
-import scipy.stats as stats
-from scipy.misc import logsumexp as logsumexp
 
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", ".."))
 import boosting_bbvi.core.relbo as relbo
-from boosting_bbvi.core.infinite_mixture import InfiniteMixtureScipy
 import boosting_bbvi.core.utils as utils
+from boosting_bbvi.core.opt_utils import elbo, setup_outdir
+import boosting_bbvi.core.opt as opt
+from boosting_bbvi.core.utils import eprint, debug
 logger = utils.get_logger()
 
 
@@ -47,16 +46,11 @@ flags.DEFINE_string('outdir', '/tmp',
 flags.DEFINE_integer('seed', 0, 'The random seed to use for everything.')
 flags.DEFINE_integer('n_fw_iter', 100, '')
 flags.DEFINE_integer('LMO_iter', 1000, '')
-flags.DEFINE_integer(
-    'n_line_search_samples', 10,
-    'Number of samples for approximating gradient in line search')
-flags.DEFINE_integer(
-    'n_line_search_iter', 10,
-    'Number of iterations line search gradient descent')
 flags.DEFINE_string('exp', 'mixture',
                     'select from [mixture, s_and_s (aka spike and slab), many]')
-flags.DEFINE_string(
-    'fw_variant', 'fixed',
+flags.DEFINE_enum('metric', 'gamma', ['E_s', 'E_q', 'gamma'], 'metric to plot')
+flags.DEFINE_enum(
+    'fw_variant', 'fixed', ['fixed', 'line_search', 'fc', 'adafw'],
     '[fixed (default), line_search, fc] The Frank-Wolfe variant to use.')
 # flags.DEFINE_string('decay', 'log',
 # '[linear, log (default), squared] The decay rate to use for Lambda.')
@@ -119,194 +113,13 @@ def construct_multivariatenormaldiag(dims, iter, name='', sample_shape=N):
     return mvn
 
 
-def construct_normal(dims, iter, name='', sample_shape=N):
+def construct_normal(dims, iter, name=''):
     loc = tf.get_variable(
         name + "_loc%d" % iter,
         initializer=tf.random_normal(dims) + np.random.normal())
     scale = tf.get_variable(
         name + "_scale%d" % iter, initializer=tf.random_normal(dims))
-    return Normal(loc=loc, scale=tf.nn.softplus(scale), sample_shape=N)
-
-
-def elbo(q, p, n_samples=1000):
-    samples = q.sample(n_samples)
-    t1 = p.log_prob(samples)
-    t2 = q.log_prob(samples)
-    elbo_samples = p.log_prob(samples) - q.log_prob(samples)
-    elbo_samples = elbo_samples.eval()
-
-    avg = np.mean(elbo_samples)
-    std = np.std(elbo_samples)
-    return avg, std
-
-
-def setup_outdir(outdir=None):
-    if outdir == None:
-        outdir = FLAGS.outdir
-    outdir = os.path.expanduser(outdir)
-    os.makedirs(outdir, exist_ok=True)
-    return outdir
-
-
-def line_search_dkl(weights, locs, diags, mu_s, cov_s, x, k):
-    """Performs line search for the best step size gamma.
-    
-    Uses gradient ascent to find gamma that minimizes
-    KL(q_t + gamma (s - q_t) || p)
-    
-    Args:
-        weights: [k], weights of mixture components of q_t
-        locs: [k x dim], means of mixture components of q_t
-        diags: [k x dim], deviations of mixture components of q_t
-        mu_s: [dim], mean for LMO Solution s
-        cov_s: [dim], cov matrix for LMO solution s
-        x: edward.model, target distribution p
-        k: iteration number of Frank-Wolfe
-    Returns:
-       Computed gamma
-    """
-    def softmax(v):
-        return np.log(1 + np.exp(v))
-    # no. of samples to approximate $\nabla_{\gamma}$
-    N_samples = FLAGS.n_line_search_samples
-    # Create current iter $q_t$
-    weights = [weights]
-    qt_comps = [
-        Normal(
-            loc=tf.convert_to_tensor(locs[i]),
-            scale=tf.convert_to_tensor(diags[i])) for i in range(len(locs))
-    ]
-    qt = Mixture(
-        cat=Categorical(probs=tf.convert_to_tensor(weights)),
-        components=qt_comps,
-        sample_shape=N)
-    qt = InfiniteMixtureScipy(stats.multivariate_normal)
-    qt.weights = weights[0]
-    qt.params = list(
-        zip([[l] for l in locs], [[softmax(np.dot(d, d))] for d in diags]))
-    # samples from $q_t$
-    sample_q = qt.sample_n(N_samples)
-    # create and sample from s
-    s = stats.multivariate_normal([mu_s],
-                                  np.dot(np.array([cov_s]), np.array([cov_s])))
-    sample_s = s.rvs(N_samples)
-    # $q_{t+1}$ is mixture of $q_t$ and s with weights $(1 - \gamma)$ and $\gamma$
-    # Set its corresponding parameters and weights
-    new_locs = copy.copy(locs)
-    new_diags = copy.copy(diags)
-    new_locs.append([mu_s])
-    new_diags.append([cov_s])
-    # initialize $\gamma$
-    gamma = 2. / (k + 2.)
-    # no. steps of gradient ascent
-    n_steps = FLAGS.n_line_search_iter
-    prog_bar = ed.util.Progbar(n_steps)
-    # storing gradients for analysis
-    grad_gamma = []
-    for it in range(n_steps):
-        print("line_search iter %d, %.5f" % (it, gamma))
-        new_weights = copy.copy(weights)
-        new_weights[0] = [(1. - gamma) * w for w in new_weights[0]]
-        new_weights[0].append(gamma)
-        # create $q_{t + 1}^{\gamma}$
-        q_next = InfiniteMixtureScipy(stats.multivariate_normal)
-        q_next.weights = new_weights[0]
-        q_next.params = list(
-            zip([[l] for l in new_locs], [[np.dot(d, d)] for d in new_diags]))
-        # Computes $\mathbb{E}[...] \propto \sum_{v}{\log p - \log q_{t + 1}^{\gamma}}$
-        def px_qx_ratio_log_prob(v):
-            Lambda = 1.
-            ret = x.log_prob([v]).eval() - q_next.log_prob(v)
-            ret /= Lambda
-            return ret
-        # Samples w.r.t s
-        rez_s = np.asarray([
-            px_qx_ratio_log_prob(sample_s[ss]) for ss in range(len(sample_s))
-        ])
-        # Samples w.r.t $q_{t+1}$
-        rez_q = np.asarray([
-            px_qx_ratio_log_prob(sample_q[ss]) for ss in range(len(sample_q))
-        ])
-        grad_gamma.append({'E_s': rez_s, 'E_q': rez_q, 'gamma': gamma})
-        # Gradient ascent step, step size decreasing as $\frac{1}{it + 1}$
-        gamma = gamma + 0.1 * (np.sum(rez_s) - np.sum(rez_q)) / (N_samples *
-                                                                 (it + 1.))
-        # Projecting it back to [0, 1]
-        if gamma >= 1 or gamma <= 0:
-            gamma = max(min(gamma, 1.), 0.)
-            break
-    goutdir = setup_outdir(os.path.join(FLAGS.outdir, 'gradients'))
-    g_outfile = os.path.join(goutdir, 'line_search_samples_%d.npy.%d' % (N_samples, k))
-    logger.info('saving line search data to, %s' % g_outfile)
-    np.save(g_outfile, grad_gamma)
-    return gamma
-
-
-def fully_corrective(q, p):
-    comps = q.components
-
-    n_comps = len(comps)
-
-    # randomly initialize, rather than take q.cat as the initialization
-    weights = np.random.random(n_comps).astype(np.float32)
-    weights /= np.sum(weights)
-
-    n_samples = 1000
-    samples = [comp.sample(n_samples) for comp in comps]
-
-    #S = tf.zeros([n_samples, n_comps, n_comps])
-    S = []
-    for j in range(n_comps):
-        for i in range(n_comps):
-            comp_log_prob = tf.squeeze(comps[i].log_prob(samples[j]))
-            #S[:,i,j] = comp_log_prob
-            S.append(comp_log_prob)
-    S = tf.transpose(tf.reshape(tf.stack(S), [n_comps, n_comps, n_samples]))
-    S = S.eval()
-
-    p_log_probs = [tf.squeeze(p.log_prob(i)).eval() for i in samples]
-
-    T = 1000000
-    for t in range(T):
-        grad = np.zeros(n_comps)
-        for i in range(n_comps):
-            part = np.zeros([n_samples, n_comps])
-            #part = []
-            for j in range(n_comps):
-                probs = S[:, j, i]
-                part[:, j] = np.log(weights[j] + 1e-10) + probs
-                #part.append(np.log(weights[j] + 1e-10).astype(np.float32) + probs)
-
-            #part = tf.stack(part)
-
-            #part = tf.convert_to_tensor(part.astype(np.float32))
-            part = logsumexp(part, axis=1)
-            #part = tf.reduce_logsumexp(part, axis=0)
-            diff = part - p_log_probs[i]
-            #grad[i] = tf.reduce_mean(diff, axis=0).eval()
-            grad[i] = np.mean(diff, axis=0)
-
-        min_i = np.argmin(grad)
-        corner = np.zeros(weights.shape)
-        corner[min_i] = 1
-
-        if t % 1000 == 0:
-            print("grad", grad)
-
-        duality_gap = -np.dot(grad, (corner - weights))
-
-        if t % 1000 == 0:
-            print("duality_gap", duality_gap)
-
-        if duality_gap < 1e-6:
-            return weights
-
-        weights += 2. / (t + 2.) * (corner - weights)
-        if t % 1000 == 0:
-            print("weights", weights, t)
-
-    print("weights", weights, t)
-    return weights
+    return Normal(loc=loc, scale=tf.nn.softplus(scale))
 
 
 def main(argv):
@@ -319,13 +132,18 @@ def main(argv):
     n_examples, n_features = x_train.shape
 
     # save the target
-    outdir = setup_outdir()
+    outdir = setup_outdir(FLAGS.outdir)
     np.savez(os.path.join(outdir, 'target_dist.npz'), pi=pi, mus=mus, stds=stds)
 
     weights, comps = [], []
     elbos = []
     relbo_vals = []
     times = []
+    lipschitz_estimates = [1.0] # TODO compute as suggested in paper
+    # p is the target distribution (mu, std)
+    # comps are the component atoms of boosting
+    # weights are weights given every iter over comps
+    # comps and weights make the current boosted iterate
     for iter in range(FLAGS.n_fw_iter):
         g = tf.Graph()
         with g.as_default():
@@ -333,31 +151,25 @@ def main(argv):
             sess = tf.InteractiveSession()
             with sess.as_default():
                 # build model
-                xcomps = [
+                pcomps = [
                     MultivariateNormalDiag(
                         loc=tf.convert_to_tensor(mus[i], dtype=tf.float32),
                         scale_diag=tf.convert_to_tensor(
                             stds[i], dtype=tf.float32))
                     for i in range(len(mus))
                 ]
-                x = Mixture(
+                p = Mixture(
                     cat=Categorical(probs=tf.convert_to_tensor(pi[0])),
-                    components=xcomps,
-                    sample_shape=N)
+                    components=pcomps)
 
-                #qx = construct_multivariatenormaldiag(
-                #    [n_features], iter, 'qx', sample_shape=[N, n_features])
-                qx = construct_normal(
-                    [n_features], iter, 'qx', sample_shape=N)
+                # s is the solution to LMO. It is initialized randomly
+                s = construct_normal([n_features], iter, 's')
                 if iter > 0:
+                    # current iterate (solution until now)
                     qtx = Mixture(
                         cat=Categorical(probs=tf.convert_to_tensor(weights)),
-                        components=[
-                            Normal(loc=c['loc'][0], scale=c['scale_diag'][0])
-                            for c in comps
-                        ],
-                        sample_shape=N)
-                    fw_iterates = {x: qtx}
+                        components=[MultivariateNormalDiag(**c) for c in comps])
+                    fw_iterates = {p: qtx}
                 else:
                     fw_iterates = {}
 
@@ -365,52 +177,73 @@ def main(argv):
 
                 total_time = 0
                 start_inference_time = time.time()
+                # Run inference on relbo to solve LMO problem
+                # NOTE: KLqp has a side effect, it is modifying s
                 inference = relbo.KLqp(
                     {
-                        x: qx
+                        p: s
                     }, fw_iterates=fw_iterates, fw_iter=iter)
                 inference.run(n_iter=FLAGS.LMO_iter)
+                # s now contains solution to LMO
                 end_inference_time = time.time()
 
                 total_time += end_inference_time - start_inference_time
 
                 if iter > 0:
                     relbo_vals.append(-utils.compute_relbo(
-                        qx, fw_iterates[x], x, np.log(iter + 1)))
+                        s, fw_iterates[p], p, np.log(iter + 1)))
 
+                # compute step size to update the next iterate
                 if iter == 0:
                     gamma = 1.
-                elif iter > 0 and FLAGS.fw_variant == 'fixed':
+                elif FLAGS.fw_variant == 'fixed':
                     gamma = 2. / (iter + 2.)
-                elif iter > 0 and FLAGS.fw_variant == 'line_search':
+                elif FLAGS.fw_variant == 'line_search':
+                    logger.warning('Line search might not be working correctly')
                     start_line_search_time = time.time()
-                    gamma = line_search_dkl(weights, [c['loc'] for c in comps],
-                                            [c['scale_diag'] for c in comps],
-                                            qx.loc.eval(),
-                                            qx.stddev().eval(), x, iter)
+                    gamma = opt.line_search_dkl(
+                        weights, [c['loc'] for c in comps],
+                        [c['scale_diag'] for c in comps], s.loc.eval(),
+                        s.stddev().eval(), p, iter, FLAGS.outdir)
                     end_line_search_time = time.time()
                     total_time += end_line_search_time - start_line_search_time
-                elif iter > 0 and FLAGS.fw_variant == 'fc':
+                elif FLAGS.fw_variant == 'fc':
                     gamma = 2. / (iter + 2.)
+                elif FLAGS.fw_variant == 'adafw':
+                    logger.warning('AdaFW might not be correct')
+                    adaptive_iter = opt.adaptive_fw(
+                        fw_iter=iter,
+                        p=p,
+                        weights=weights,
+                        l_prev=lipschitz_estimates[-1],
+                        s_t=s,
+                        mu_s=s.loc.eval(),
+                        cov_s=s.stddev().eval(),
+                        q_t=qtx,
+                        comps=comps,
+                        locs=[c['loc'] for c in comps],
+                        diags=[c['scale_diag'] for c in comps],
+                        return_l=True)
+                    gamma = adaptive_iter['gamma']
+                    lipschitz_estimates.append(adaptive_iter['l_estimate'])
 
                 comps.append({
-                    'loc': qx.mean().eval(),
-                    'scale_diag': qx.stddev().eval()
+                    'loc': s.mean().eval(),
+                    'scale_diag': s.stddev().eval()
                 })
                 weights = utils.update_weights(weights, gamma, iter)
 
-                print("weights", weights)
-                print("comps", [c['loc'] for c in comps])
-                print("scale_diags", [c['scale_diag'] for c in comps])
+                #print("weights", weights)
+                #print("comps", [c['loc'] for c in comps])
+                #print("scale_diags", [c['scale_diag'] for c in comps])
 
                 q_latest = Mixture(
                     cat=Categorical(probs=tf.convert_to_tensor(weights)),
-                    components=[MultivariateNormalDiag(**c) for c in comps],
-                    sample_shape=N)
+                    components=[MultivariateNormalDiag(**c) for c in comps])
 
                 if FLAGS.fw_variant == "fc":
                     start_fc_time = time.time()
-                    weights = fully_corrective(q_latest, x)
+                    weights = opt.fully_corrective(q_latest, p)
                     weights = list(weights)
                     for i in reversed(range(len(weights))):
                         w = weights[i]
@@ -423,12 +256,11 @@ def main(argv):
 
                 q_latest = Mixture(
                     cat=Categorical(probs=tf.convert_to_tensor(weights)),
-                    components=[MultivariateNormalDiag(**c) for c in comps],
-                    sample_shape=N)
+                    components=[MultivariateNormalDiag(**c) for c in comps])
 
-                elbos.append(elbo(q_latest, x))
+                elbos.append(elbo(q_latest, p))
 
-                outdir = setup_outdir()
+                outdir = setup_outdir(FLAGS.outdir)
 
                 print("total time", total_time)
                 times.append(float(total_time))

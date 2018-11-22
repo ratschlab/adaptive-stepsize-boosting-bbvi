@@ -17,7 +17,10 @@ import numpy as np
 from colorama import Fore, Style
 import os, sys
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", ".."))
+import boosting_bbvi.core.opt as opt
 import boosting_bbvi.scripts.mixture_model_relbo as mixture_model_relbo
+import boosting_bbvi.core.utils as utils
+logger = utils.get_logger()
 
 flags = tf.app.flags
 FLAGS = flags.FLAGS
@@ -42,8 +45,9 @@ def print_err(true, calculated):
         etype = Fore.RED
     print(etype)
     print('true  %.5f, calculated  %.5f, Error %.5f' % (true, calculated,
-                                                           rerr))
+                                                        rerr))
     print(Style.RESET_ALL)
+    return rerr
 
 
 def test_exact_gamma():
@@ -59,20 +63,20 @@ def test_exact_gamma():
             # thus, gamma = pi[1] (=0.6), q_t = N(mu[0], std[0])
             # s = N(mu[1], std[1])
             pcomps = [
-                Normal(
+                MultivariateNormalDiag(
                     loc=tf.convert_to_tensor(mus[i], dtype=tf.float32),
-                    scale=tf.convert_to_tensor(stds[i], dtype=tf.float32))
+                    scale_diag=tf.convert_to_tensor(stds[i], dtype=tf.float32))
                 for i in range(len(mus))
             ]
             p = Mixture(
-                cat=Categorical(probs=tf.convert_to_tensor(pi)),
+                cat=Categorical(probs=tf.convert_to_tensor(pi[0])),
                 components=pcomps)
             # build q_t
             weights = [1.]
             locs = [mus[0]]
             diags = [stds[0]]
-            gamma = mixture_model_relbo.line_search_dkl(
-                weights, locs, diags, mus[1], stds[1], p, FLAGS.init_k)
+            gamma = opt.line_search_dkl(weights, locs, diags, mus[1], stds[1],
+                                        p, FLAGS.init_k, FLAGS.outdir)
     print_err(pi[0][1], gamma)
 
 def main(argv):

@@ -1,5 +1,15 @@
+"""Utilities for relbo and optimization."""
+import sys
 import numpy as np
 import tensorflow as tf
+from colorama import Fore
+from colorama import Style
+
+def eprint(*args, **kwargs):
+    print(Fore.RED, *args, Style.RESET_ALL, file=sys.stderr, **kwargs)
+
+def debug(*args, **kwargs):
+    print(Fore.YELLOW, *args, Style.RESET_ALL, file=sys.stderr, **kwargs)
 
 def decay_linear(value):
     return 1./value
