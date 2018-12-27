@@ -1,13 +1,5 @@
 #!/bin/bash
 
-#Black        0;30     Dark Gray     1;30
-#Red          0;31     Light Red     1;31
-#Green        0;32     Light Green   1;32
-#Brown/Orange 0;33     Yellow        1;33
-#Blue         0;34     Light Blue    1;34
-#Purple       0;35     Light Purple  1;35
-#Cyan         0;36     Light Cyan    1;36
-#Light Gray   0;37     White         1;37
 RED='\033[0;31m'
 HRED='\033[1;41m'
 BROWN='\033[2;33m'
@@ -24,29 +16,32 @@ echo_and_run() {
 # exit on fail
 set -e
 
-if [ -z "$ROOT" ]; then
-  ROOT=/home/saurav
+if [ -z "$UHOME" ]; then
+  UHOME=/home/saurav
 fi
-TD=${ROOT}/thesis_data
-T=${ROOT}/thesis
+TD=${UHOME}/thesis_data
+T=${UHOME}/thesis
 SRC=${T}/boosting-bbvi-private/boosting_bbvi
 DOC=${T}/boosting-bbvi-private/docs
 #OUTDIR=${TD}/line_search_test
-OUTDIR=${TD}/test
-#OUTDIR=${TD}/1d
+#OUTDIR=${TD}/test
+OUTDIR=${TD}/1d
 #OUTDIR=${TD}/2d
+
+## fw_variant - fixed, line_search, fc, adafw
+FW_VAR=fixed
+
+OUTDIR=${OUTDIR}/${FW_VAR}
 
 # Clean output directory
 echo -e "${HRED}Cleaning data $@${NC}" ; 
 echo_and_run \
   mkdir -p ${OUTDIR}
 
-## Run the mixture model
+## **********Run the mixture model************* ##
 ## exp - mixture, mixture_2d
 echo -e "${HGREEN} Running Boosted BBVI $@${NC}" ; 
-## fw_variant - fixed, line_search, fc, adafw
-#FW_VAR=adafw
-#i=1000
+i=1000
 #echo_and_run \
 #  python ${SRC}/scripts/mixture_model_relbo.py \
 #    --relbo_reg 1.0 \
@@ -54,45 +49,54 @@ echo -e "${HGREEN} Running Boosted BBVI $@${NC}" ;
 #    --exp mixture \
 #    --fw_variant ${FW_VAR} \
 #    --outdir=${OUTDIR} \
-#    --n_fw_iter=10 \
-#    --LMO_iter=20 \
+#    --n_fw_iter=50 \
+#    --LMO_iter=1000 \
 #    --n_monte_carlo_samples ${i} \
 #    --n_line_search_iter 25
 
-# Running test script
+## **********Running test script************* ##
 echo -e "${HPURPLE} Running test $@${NC}" ; 
-#iters=( 5  10 )
+iters=( 5  10 )
 #for i in "${iters[@]}"
 #do
 #  echo_and_run \
-#    python ${SRC}/tests/test_line_search.py \
+#    python ${SRC}/tests/test_step_size.py \
 #            --exp mixture \
 #            --outdir=${OUTDIR} \
-#            --n_line_search_samples ${i} \
+#            --fw_variant=${FW_VAR} \
+#            --n_monte_carlo_samples ${i} \
 #            --n_line_search_iter 25
 #done
 
-echo_and_run \
-  python ${SRC}/tests/test_gap.py \
-    --n_fw_iter=10 \
-    --LMO_iter=1000 \
-    --n_monte_carlo_samples 1000 \
+#echo_and_run \
+#  python ${SRC}/tests/test_gap.py \
+#    --n_fw_iter=10 \
+#    --LMO_iter=1000 \
+#    --n_monte_carlo_samples 1000 \
 
-## Create single mixture plot
+## **********Plotting results************* ##
 echo -e "${HCYAN} Plotting results $@${NC}" ; 
 
 #echo_and_run \
 #  python ${SRC}/plots/plot_single_mixture.py \
 #    --outdir=stdout \
 #    --target=${OUTDIR}/target_dist.npz \
-#    --qt=${OUTDIR}/qt_latest.npz,${OUTDIR}/qt_iter5.npz \
-#    --labels=latest,iter5 \
+#    --qt=${OUTDIR}/qt_latest.npz,${OUTDIR}/qt_iter20.npz \
+#    --labels=latest,iter20 \
 ##    --grid2d
+    #--qt=${OUTDIR}/qt_latest.npz,${OUTDIR}/qt_iter2.npz,${OUTDIR}/qt_iter0.npz \
+    #--labels=latest,iter2,init \
+
+echo_and_run \
+  python ${SRC}/plots/plot_mixture_comps.py \
+    --outdir=stdout \
+    --qt=${OUTDIR}/qt_iter5.npz,${OUTDIR}/qt_iter3.npz \
+    --labels=iter5,iter3
 
 # outdir = stdout, ${DOC}/plots
-all_runs=$(ls ${OUTDIR}/gradients/*)
-all_runs_comma=$(echo ${all_runs} | sed "s/\s/,/g")
-# metric = gamma,E_s,E_q
+#all_runs=$(ls ${OUTDIR}/gradients/*)
+#all_runs_comma=$(echo ${all_runs} | sed "s/\s/,/g")
+## metric = gamma,E_s,E_q
 #METRIC=E_q
 #echo_and_run \
 #  python ${SRC}/plots/plot_line_search.py \
@@ -101,4 +105,3 @@ all_runs_comma=$(echo ${all_runs} | sed "s/\s/,/g")
 #    --extra=0.6 \
 #    --outfile=test_e_q.png \
 #    --runs=${all_runs_comma}
-##    --runs=${OUTDIR}/gradients/line_search_samples_10.npy,${OUTDIR}/gradients/line_search_samples_35.npy,${OUTDIR}/gradients/line_search_samples_5.npy,${OUTDIR}/gradients/line_search_samples_50.npy,${OUTDIR}/gradients/line_search_samples_20.npy

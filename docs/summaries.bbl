@@ -8,6 +8,11 @@ Balabdaoui, F. and van~de Geer, S. (2016).
 Bauer, S. (2018).
 \newblock Probabilistic graphical models for image analysis.
 
+\bibitem[Bernton et~al., 2017]{bernton2017inference}
+Bernton, E., Jacob, P.~E., Gerber, M., and Robert, C.~P. (2017).
+\newblock Inference in generative models using the wasserstein distance.
+\newblock {\em arXiv preprint arXiv:1701.05146}.
+
 \bibitem[Blei et~al., 2016]{blei2016variational}
 Blei, D.~M., Kucukelbir, A., and McAuliffe, J.~D. (2016).
 \newblock Variational inference: A review for statisticians.
@@ -18,6 +23,11 @@ Demyanov, V.~F. and Rubinov, A.~M. (1970).
 \newblock Approximate methods in optimization problems.
 \newblock {\em (Modern Analytic and Computational Methods in Science and
   Mathematics. IX}.
+
+\bibitem[Dong et~al., 2018]{liu2018entropy}
+Dong, L., Minh, T.~V., Chatterjee, S., and Rasmussen, L.~K. (2018).
+\newblock Entropy-regularized optimal transport generative models.
+\newblock {\em arXiv preprint arXiv:1811.06763}.
 
 \bibitem[Guo et~al., 2016]{guo2016boosting}
 Guo, F., Wang, X., Fan, K., Broderick, T., and Dunson, D.~B. (2016).
@@ -37,6 +47,11 @@ Jaggi, M. (2013).
 \bibitem[Jalil~Taghia and Schön, 2018]{pml18}
 Jalil~Taghia, L.~M. and Schön, T. (2018).
 \newblock Probabilistic machine learning.
+
+\bibitem[Jordan et~al., 1998]{jordan1998variational}
+Jordan, R., Kinderlehrer, D., and Otto, F. (1998).
+\newblock The variational formulation of the fokker--planck equation.
+\newblock {\em SIAM journal on mathematical analysis}, 29(1):1--17.
 
 \bibitem[Kingma and Welling, 2013]{kingma2013auto}
 Kingma, D.~P. and Welling, M. (2013).
@@ -67,6 +82,11 @@ Pedregosa, F. (2018).
 Pedregosa, F., Askari, A., Negiar, G., and Jaggi, M. (2018).
 \newblock Step-size adaptivity in projection-free optimization.
 \newblock {\em arXiv preprint arXiv:1806.05123}.
+
+\bibitem[Peyr{\'e} et~al., 2017]{peyre2017computational}
+Peyr{\'e}, G., Cuturi, M., et~al. (2017).
+\newblock Computational optimal transport.
+\newblock Technical report, {\'E}cole Normale Sup{\'e}rieure.
 
 \bibitem[Ranganath et~al., 2014]{ranganath2014black}
 Ranganath, R., Gerrish, S., and Blei, D. (2014).
@@ -101,5 +121,10 @@ Titsias, M. and L{\'a}zaro-Gredilla, M. (2014).
 \newblock Doubly stochastic variational bayes for non-conjugate inference.
 \newblock In {\em International Conference on Machine Learning}, pages
   1971--1979.
+
+\bibitem[Tolstikhin et~al., 2017]{tolstikhin2017wasserstein}
+Tolstikhin, I., Bousquet, O., Gelly, S., and Schoelkopf, B. (2017).
+\newblock Wasserstein auto-encoders.
+\newblock {\em arXiv preprint arXiv:1711.01558}.
 
 \end{thebibliography}

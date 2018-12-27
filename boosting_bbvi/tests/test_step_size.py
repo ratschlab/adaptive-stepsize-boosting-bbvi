@@ -1,11 +1,12 @@
-"""Test line search variant of FW.
+"""Test step size variants of FW.
 
 Usage:
-    python test_line_search.py \
+    python test_step_size.py \
             --exp mixture \
-            --n_line_search_samples 10 \
+            --n_monte_carlo_samples 10 \
             --n_line_search_iter 10 \
             --outdir=out_path/test \
+            --fw_variant=line_search \
             --init_k 0 \
 """
 from edward.models import Categorical, Normal, Mixture, MultivariateNormalDiag
@@ -75,8 +76,31 @@ def test_exact_gamma():
             weights = [1.]
             locs = [mus[0]]
             diags = [stds[0]]
-            gamma = opt.line_search_dkl(weights, locs, diags, mus[1], stds[1],
-                                        p, FLAGS.init_k, FLAGS.outdir)
+            if FLAGS.fw_variant == "line_search":
+                gamma = opt.line_search_dkl(weights, locs, diags, mus[1], stds[1],
+                                            p, FLAGS.init_k, FLAGS.outdir)
+            elif FLAGS.fw_variant == "adafw":
+                qt = Mixture(
+                    cat=Categorical(probs=tf.convert_to_tensor(weights)),
+                    components=[
+                        MultivariateNormalDiag(loc=loc, scale_diag=diag)
+                        for loc, diag in zip(locs, diags)
+                    ])
+                s = MultivariateNormalDiag(loc=mus[1], scale_diag=stds[1])
+                gamma = opt.adaptive_fw(
+                    fw_iter=FLAGS.init_k,
+                    p=p,
+                    weights=weights,
+                    l_prev=1.,
+                    s_t=s,
+                    mu_s=mus[1],
+                    cov_s=stds[1],
+                    q_t=qt,
+                    locs=locs,
+                    diags=diags,
+                    return_l=False)
+            else:
+                raise NotImplementedError('other variants not tested yet.')
     print_err(pi[0][1], gamma)
 
 def main(argv):

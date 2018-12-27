@@ -1,7 +1,7 @@
 """
 Plot multiple 1d mixture models
 
-Example usage:
+Usage:
     python plots/plot_single_mixture.py \
             --outdir=/tmp \
             --title=single mixture \
@@ -43,14 +43,11 @@ flags.DEFINE_string('outdir', '/tmp/',
                     'Output file to store plot into, set to stdout to '
                     'only show the plots and not save them')
 flags.DEFINE_string('outfile', 'mixtures.png', 'name of the plot file')
-flags.DEFINE_string('title', 'my awesome figure', '')
-
+flags.DEFINE_string('title', 'results', '')
 flags.DEFINE_string('ylabel', 'y', '')
 flags.DEFINE_string('xlabel', 'x', '')
-
 flags.DEFINE_string('target', None, 'path to target.npz')
 flags.mark_flag_as_required('target')
-
 flags.DEFINE_list('qt', [], 'comma-separated list,of,qts to visualize')
 flags.DEFINE_list('labels', [], 'list of labels to be associated with the qts')
 flags.DEFINE_list('styles', [], 'styles for each plot')
@@ -58,18 +55,6 @@ flags.DEFINE_boolean('widegrid', False, 'range for the x-axis')
 flags.DEFINE_boolean('grid2d', False, '3D plot')
 flags.DEFINE_boolean('bars', False,
                      'plot bar chart (loc, weight) for each component')
-
-
-def construct_mixture_from_params(**kwargs):
-    weights = kwargs['weights']
-    locs = kwargs['loc']
-    diags = kwargs['diags']
-
-    qx = InfiniteMixtureScipy(stats.multivariate_normal)
-    qx.weights = weights[0]
-    qx.params = list(zip([[l] for l in locs], [[np.dot(d, d)] for d in diags]))
-
-    return qx
 
 
 def deserialize_mixture_from_file(filename):
@@ -146,7 +131,6 @@ def main(argv):
             ax.pcolormesh(
                 gridx, gridy, xprobs.reshape(gridx.shape), cmap='Blues')
         else:
-            debug("shape of grid, xprobs", grid.shape, xprobs.shape)
             ax.plot(grid, xprobs, label='target', linewidth=2.0)
 
         if len(FLAGS.qt) == 0:
@@ -165,8 +149,6 @@ def main(argv):
                 ax2.pcolormesh(
                     gridx, gridy, qtprobs.reshape(gridx.shape), cmap='Greens')
             else:
-                debug("shape of grid, qtprobs, %s" % styles[i % len(styles)],
-                       grid.shape, qtprobs.shape)
                 ax.plot(
                     grid,
                     qtprobs,

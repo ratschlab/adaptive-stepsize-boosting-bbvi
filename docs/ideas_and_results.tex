@@ -25,6 +25,8 @@ Line search in \ref{eqn:update_lsearch} is not working very well.
     # Write grad_gamma to outdir/line_search_samples_<n_samples>.npy.<fw_iter>
 \end{minted}
 \mypar{Metrics on original version}
+\todo[color=magenta]{values have changed slightly after moving everything to 
+Tensorflow/Edward. Remake plots?}
 \begin{figure}[h] \label{fig:gamma}
   \centering
   \includegraphics[width=0.9\textwidth]{plots/test_gamma.png}
@@ -106,6 +108,18 @@ norm constrained optimization. It can be replaced with something simpler
 See \cite{tolstikhin2017wasserstein} \cite{liu2018entropy} \cite{bernton2017inference}
 \cite{jordan1998variational} \href{https://www-dimat.unipv.it/savare/Ravello2010/JKO.pdf}
 {here} And \cite{peyre2017computational} part 4.
+Also see slides of Optimal transport (Gradient flows) \href{https://optimaltransport.github.io}
+{here} 
+
+\subsection{Sensibility of Distribution}
+Given observable $r(x)$ with mean $\mu$, Probability distribution $p(x)$
+that satisfies the constraint $\EEE{p(x)}{r(x)} = \mu$ is a function of parameter
+$\mu, p(x) \equiv p(x, \mu)$. Sensibility of a distribution w.r.t $\mu$ is 
+defined as the expected squared deviation given by the perturbation of $\mu$.
+See slides of lecture 2 of SLT 
+$$
+\mathcal{S}(p) = \EE{\Big(\frac{\partial_{\mu} p}{p}\Big)^2}
+$$
 
 \subsection{Port code to Tensorflow Probability}
 see \ref{code:ed_tf_issue}. Issue is if \texttt{tfp.edward2} will have support

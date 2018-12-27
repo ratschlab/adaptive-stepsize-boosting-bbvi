@@ -1,6 +1,3 @@
-# TODO(sauravshekhar) not working correctly, line search is terminating only
-# after 1 iteration even though n_line_search_iter is not 1. Maybe projection
-# is going wrong.
 """
 Run Black Box relbo
 
@@ -23,6 +20,7 @@ import numpy as np
 import time
 
 import tensorflow as tf
+from tensorflow.contrib.distributions import kl_divergence
 
 from edward.models import (Categorical, Dirichlet, Empirical, InverseGamma,
                            MultivariateNormalDiag, Normal, ParamMixture,
@@ -48,7 +46,6 @@ flags.DEFINE_integer('n_fw_iter', 100, '')
 flags.DEFINE_integer('LMO_iter', 1000, '')
 flags.DEFINE_string('exp', 'mixture',
                     'select from [mixture, s_and_s (aka spike and slab), many]')
-flags.DEFINE_enum('metric', 'gamma', ['E_s', 'E_q', 'gamma'], 'metric to plot')
 flags.DEFINE_enum(
     'fw_variant', 'fixed', ['fixed', 'line_search', 'fc', 'adafw'],
     '[fixed (default), line_search, fc] The Frank-Wolfe variant to use.')
@@ -135,22 +132,20 @@ def main(argv):
     outdir = setup_outdir(FLAGS.outdir)
     np.savez(os.path.join(outdir, 'target_dist.npz'), pi=pi, mus=mus, stds=stds)
 
-    weights, comps = [], []
-    elbos = []
-    relbo_vals = []
-    times = []
-    lipschitz_estimates = [1.0] # TODO compute as suggested in paper
-    # p is the target distribution (mu, std)
     # comps are the component atoms of boosting
     # weights are weights given every iter over comps
-    # comps and weights make the current boosted iterate
+    weights, comps = [], []
+    elbos, relbo_vals = [], []
+    times = []
+    lipschitz_estimates = [1.0] # TODO initialize as suggested in paper
+    duality_gaps, objective_values = [], []
     for iter in range(FLAGS.n_fw_iter):
         g = tf.Graph()
         with g.as_default():
             tf.set_random_seed(FLAGS.seed)
             sess = tf.InteractiveSession()
             with sess.as_default():
-                # build model
+                # build target distribution
                 pcomps = [
                     MultivariateNormalDiag(
                         loc=tf.convert_to_tensor(mus[i], dtype=tf.float32),
@@ -194,6 +189,7 @@ def main(argv):
                         s, fw_iterates[p], p, np.log(iter + 1)))
 
                 # compute step size to update the next iterate
+                step_result = {}
                 if iter == 0:
                     gamma = 1.
                 elif FLAGS.fw_variant == 'fixed':
@@ -211,7 +207,7 @@ def main(argv):
                     gamma = 2. / (iter + 2.)
                 elif FLAGS.fw_variant == 'adafw':
                     logger.warning('AdaFW might not be correct')
-                    adaptive_iter = opt.adaptive_fw(
+                    step_result = opt.adaptive_fw(
                         fw_iter=iter,
                         p=p,
                         weights=weights,
@@ -220,12 +216,10 @@ def main(argv):
                         mu_s=s.loc.eval(),
                         cov_s=s.stddev().eval(),
                         q_t=qtx,
-                        comps=comps,
                         locs=[c['loc'] for c in comps],
                         diags=[c['scale_diag'] for c in comps],
                         return_l=True)
-                    gamma = adaptive_iter['gamma']
-                    lipschitz_estimates.append(adaptive_iter['l_estimate'])
+                    gamma = step_result['gamma']
 
                 comps.append({
                     'loc': s.mean().eval(),
@@ -259,10 +253,13 @@ def main(argv):
                     components=[MultivariateNormalDiag(**c) for c in comps])
 
                 elbos.append(elbo(q_latest, p))
-
-                outdir = setup_outdir(FLAGS.outdir)
+                objective_values.append(kl_divergence(q_latest, p).eval())
+                if FLAGS.fw_variant == 'adafw' and iter > 0:
+                    duality_gaps.append(step_result['gap'])
+                    lipschitz_estimates.append(step_result['l_estimate'])
 
                 print("total time", total_time)
+                outdir = setup_outdir(FLAGS.outdir)
                 times.append(float(total_time))
                 utils.save_times(os.path.join(outdir, 'times.csv'), times)
 
@@ -275,6 +272,22 @@ def main(argv):
                 relbos_filename = os.path.join(outdir, 'relbos.csv')
                 np.savetxt(relbos_filename, relbo_vals, delimiter=',')
                 logger.info("saving relbo values to, %s" % relbos_filename)
+
+                objective_filename = os.path.join(outdir, 'kl.csv')
+                logger.info("iter, %d, kl, %.2f" % (iter, objective_values[-1]))
+                np.savetxt(objective_filename, objective_values, delimiter=',')
+                logger.info("saving kl divergence to, %s" % objective_filename)
+
+                if FLAGS.fw_variant == 'adafw':
+                    lipschitz_filename = os.path.join(outdir,'lipschitz.csv')
+                    np.savetxt(
+                        lipschitz_filename, lipschitz_estimates, delimiter=',')
+                    logger.info(
+                        "saving lipschitz values to, %s" % lipschitz_filename)
+
+                    gap_filename = os.path.join(outdir, 'gap.csv')
+                    np.savetxt(gap_filename, duality_gaps, delimiter=',')
+                    logger.info("saving duality gap to, %s" % gap_filename)
 
                 for_serialization = {
                     'locs': np.array([c['loc'] for c in comps]),

@@ -8,7 +8,7 @@ import os, sys
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", ".."))
 import boosting_bbvi.core.opt as opt
 import boosting_bbvi.core.opt_utils as opt_utils
-from boosting_bbvi.tests.test_line_search import print_err
+from boosting_bbvi.tests.test_step_size import print_err
 from edward.models import Normal
 from tensorflow.python.ops.distributions import normal
 import boosting_bbvi.core.utils as utils

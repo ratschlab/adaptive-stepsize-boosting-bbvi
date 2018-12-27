@@ -49,10 +49,11 @@ def adaptive_fw(**kwargs):
     qt_tf = kwargs['q_t'] # current iterate
     locs = kwargs['locs']
     diags = kwargs['diags']
-    qt_comps = kwargs['comps']
+    p = kwargs['p'] # target dist
+    weights = kwargs['weights']
+    l_prev = kwargs['l_prev']
 
-    # $q_{t+1}$ is mixture of $q_t$ and s with weights $(1 - \gamma)$ and $\gamma$
-    # Set its corresponding parameters and weights
+    # Set $q_{t+1}$'s params
     new_locs = copy.copy(locs)
     new_diags = copy.copy(diags)
     new_locs.append(mu_s)
@@ -65,20 +66,12 @@ def adaptive_fw(**kwargs):
         update_rule = kwargs['step_size_update']
     else:
         update_rule = 'adaptive'
-    p = kwargs['p'] # target dist
 
-    # $w_{t + 1} = [(1 - \gamma)w_t, \gamma]$
-    weights = kwargs['weights']
-    # previous lipschitz estimate
-    l_prev = kwargs['l_prev']
-    # calculate duality_gap
     N_samples = FLAGS.n_monte_carlo_samples
-    # samples from $q_t$
+    # create and sample from $s_t, q_t$
     sample_q = qt_tf.sample([N_samples])
-    # create and sample from $s_t$
     s_t = MultivariateNormalDiag(loc=mu_s, scale_diag=cov_s)
     sample_s = s_t.sample([N_samples])
-    # $\nabla f(q_t)(\theta)$
     step_s = tf.reduce_mean(grad_kl(qt_tf, p, sample_s)).eval()
     step_q = tf.reduce_mean(grad_kl(qt_tf, p, sample_q)).eval()
     gap = step_q - step_s
@@ -86,19 +79,18 @@ def adaptive_fw(**kwargs):
     # FIXME this assertion is failing
     # Removing this condition will lead to NaN values in log probs in
     # further iterations.
-    assert gap >= 0, eprint("Duality gap is negative...")
+    # assert gap >= 0, eprint("Duality gap is negative...")
+    if gap < 0: logger.warning("Duality gap is negative returning fixed step")
 
-    # compute lipschitz estimate
-    i = 0
-    # default values in the paper
-    tau, pow_tau = 2.0, 1.0
-    eta = 0.99
-    l_t = l_prev
-    f_t =  kl_divergence(qt_tf, p, allow_nan_stats=False).eval()
     gamma = 2. / (fw_iter + 2.)
-    while True:
+    # default values in the paper
+    tau, pow_tau, eta = 2.0, 1.0, 0.99
+    i, l_t = 0, l_prev
+    f_t =  kl_divergence(qt_tf, p, allow_nan_stats=False).eval()
+    # return intial estimate if gap is -ve
+    while gap >= 0:
+        # compute $L_t$ and $\gamma_t$
         l_t = pow_tau * eta * l_prev
-        # update step
         if update_rule == 'adaptive':
             gamma = min(gap / (l_t * d_t_norm), 1.0)
         else:
@@ -108,6 +100,7 @@ def adaptive_fw(**kwargs):
         d_2 = gamma * gamma * l_t * d_t_norm / 2.
         quad_bound_rhs = f_t  + d_1 + d_2
 
+        # $w_{t + 1} = [(1 - \gamma)w_t, \gamma]$
         new_weights = copy.copy(weights)
         new_weights = [(1. - gamma) * w for w in new_weights]
         new_weights.append(gamma)
@@ -126,7 +119,7 @@ def adaptive_fw(**kwargs):
         pow_tau *= tau
 
     if 'return_l' in kwargs and kwargs['return_l']:
-        return {'gamma': gamma, 'l_estimate': l_t}
+        return {'gamma': gamma, 'l_estimate': l_t, 'gap': gap}
     return gamma
 
 
@@ -148,7 +141,6 @@ def line_search_dkl(weights, locs, diags, mu_s, cov_s, p, k, outdir):
     Returns:
        Computed gamma
     """
-    # no. of samples to approximate $\nabla_{\gamma}$
     N_samples = FLAGS.n_monte_carlo_samples
     # Create current iter $q_t$
     qt = Mixture(
@@ -157,22 +149,17 @@ def line_search_dkl(weights, locs, diags, mu_s, cov_s, p, k, outdir):
             MultivariateNormalDiag(loc=loc, scale_diag=diag)
             for loc, diag in zip(locs, diags)
         ])
-    # samples from $q_t$
-    # FIXME issue in sampling, CHECK
+    # sample from $q_t$ and s
     sample_q = qt.sample([N_samples])
-    # create and sample from s
     s_t = MultivariateNormalDiag(loc=mu_s, scale_diag=cov_s)
     sample_s = s_t.sample([N_samples])
-    # $q_{t+1}$ is mixture of $q_t$ and s with weights
-    # $(1 - \gamma)$ and $\gamma$
-    # Set its corresponding parameters and weights
+    # set $q_{t+1}$'s parameters
     new_locs = copy.copy(locs)
     new_diags = copy.copy(diags)
     new_locs.append(mu_s)
     new_diags.append(cov_s)
     # initialize $\gamma$
     gamma = 2. / (k + 2.)
-    # no. steps of gradient ascent
     n_steps = FLAGS.n_line_search_iter
     prog_bar = ed.util.Progbar(n_steps)
     # storing gradients for analysis
@@ -182,21 +169,16 @@ def line_search_dkl(weights, locs, diags, mu_s, cov_s, p, k, outdir):
         new_weights = copy.copy(weights)
         new_weights = [(1. - gamma) * w for w in new_weights]
         new_weights.append(gamma)
-        # create $q_{t + 1}^{\gamma}$
-        # TODO(sauravshekhar) replace with Edward version?
         qt_new = Mixture(
             cat=Categorical(probs=tf.convert_to_tensor(new_weights)),
             components=[
                 MultivariateNormalDiag(loc=loc, scale_diag=diag)
                 for loc, diag in zip(new_locs, new_diags)
             ])
-        # Computes $\mathbb{E}[...] \propto \sum_{v}{\log p - \log q_{t + 1}^{\gamma}}$
-        # Samples w.r.t s
         rez_s = grad_kl(qt_new, p, sample_s).eval()
-        # Samples w.r.t $q_{t+1}$
         rez_q = grad_kl(qt_new, p, sample_q).eval()
         grad_gamma.append({'E_s': rez_s, 'E_q': rez_q, 'gamma': gamma})
-        # Gradient ascent step, step size decreasing as $\frac{1}{it + 1}$
+        # Gradient descent step size decreasing as $\frac{1}{it + 1}$
         gamma = gamma - 0.1 * (np.mean(rez_s) - np.mean(rez_q)) / (it + 1.)
         # Projecting it back to [0, 1]
         if gamma >= 1 or gamma <= 0:

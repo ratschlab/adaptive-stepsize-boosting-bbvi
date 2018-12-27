@@ -51,7 +51,7 @@ def run_gap(pi, mus, stds):
                 ]
                 # target distribution
                 p = Mixture(
-                    cat=Categorical(probs=tf.convert_to_tensor(pi[0])),
+                    cat=Categorical(probs=tf.convert_to_tensor(pi)),
                     components=pcomps)
 
                 # LMO appoximation
@@ -97,7 +97,7 @@ def run_gap(pi, mus, stds):
 
 def main(argv):
     # target distribution parameters
-    pi = np.array([[0.4, 0.6]]).astype(np.float32)
+    pi = np.array([0.4, 0.6]).astype(np.float32)
     mus = [[1.], [-1.]]
     stds = [[.6], [.6]]
     run_gap(pi, mus, stds)
