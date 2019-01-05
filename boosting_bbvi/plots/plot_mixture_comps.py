@@ -4,8 +4,8 @@ Plot components of the mixture model
 Usage:
     python plot_mixture_comps.py \
             --outdir=stdout \
-            --qt=/path/qt_iter25.npz,/path/qt_iter26.npz \
-            --labels=iter25,latest
+            --qt=/path/qt_iter25.npz \
+            --label=iter25
 """
 
 from __future__ import print_function
@@ -43,9 +43,8 @@ flags.DEFINE_string('outfile', 'mixtures.png', 'name of the plot file')
 flags.DEFINE_string('title', 'results', '')
 flags.DEFINE_string('ylabel', 'y', '')
 flags.DEFINE_string('xlabel', 'x', '')
-flags.DEFINE_list('qt', [], 'iteration to visualize')
-flags.DEFINE_list('label', [], 'list of labels to be associated with the qts')
-flags.DEFINE_list('styles', [], 'styles for each plot')
+flags.DEFINE_string('qt', "", 'iteration to visualize')
+flags.DEFINE_string('label', '', 'label to be associated with the qt')
 flags.DEFINE_boolean('widegrid', False, 'range for the x-axis')
 flags.DEFINE_boolean('grid2d', False, '3D plot')
 
@@ -64,9 +63,10 @@ def plot_normal_mix(pis, mus, sigmas, ax, label=''):
         raise NotImplementedError('2d not implemented yet...')
     for i, (weight_mix, mu_mix, sigma_mix) in enumerate(zip(pis, mus, sigmas)):
         temp = stats.norm.pdf(grid, mu_mix, sigma_mix)
+        # Do not multiply by weights and show unweighted distribution
         #temp *= weight_mix
         final = final + temp
-        ax.plot(grid, temp, label='Component {}'.format(i))
+        ax.plot(grid, temp, label='{}'.format(i))
     ax.plot(grid, final, label='Mixture')
     ax.legend(fontsize=13)
 
@@ -76,23 +76,27 @@ def main(argv):
     if FLAGS.grid2d:
         raise NotImplementedError('Only 1D Normal supported...')
 
-    if len(FLAGS.qt) == 0:
+    if FLAGS.qt == "":
         eprint(
-            "provide some qts to the `--qt` option if you would like to "
-            "plot them"
+            "provide some qt to the `--qt` option if you would like to "
+            "plot"
         )
 
-    if FLAGS.labels:
-        labels = FLAGS.labels
+    if FLAGS.label:
+        label = FLAGS.label
     else:
-        labels = ['approximation'] * len(FLAGS.qt)
+        qt_file = os.path.splitext(FLAGS.qt)[0]
+        label = qt_file[qt_file.find('qt_') + len('qt_'):]
 
-    fig, axes = plt.subplots(nrows=1, ncols=2, figsize=(16, 6))
-    for i, (qt_filename, label) in enumerate(zip(FLAGS.qt, labels)):
-        debug("visualizing %s" % qt_filename)
-        mixture_params = get_mixture_params_from_file(qt_filename)
-        plot_normal_mix(mixture_params['weights'], mixture_params['locs'],
-                        mixture_params['scale_diags'], axes[i], label)
+    plt.figure(1)
+    debug("visualizing %s" % os.path.basename(FLAGS.qt))
+    mixture_params = get_mixture_params_from_file(FLAGS.qt)
+    plot_normal_mix(mixture_params['weights'], mixture_params['locs'],
+                    mixture_params['scale_diags'], plt, label)
+
+    plt.figure(2)
+    w = mixture_params['weights']
+    plt.bar(np.arange(len(w)), w, color='b', label=label)
 
     if FLAGS.outdir == 'stdout':
         plt.show()

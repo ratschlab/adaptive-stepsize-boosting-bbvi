@@ -27,32 +27,35 @@ DOC=${T}/boosting-bbvi-private/docs
 #OUTDIR=${TD}/test
 OUTDIR=${TD}/1d
 #OUTDIR=${TD}/2d
+#OUTDIR_ref=${TD}/mixture_model_variants
 
 ## fw_variant - fixed, line_search, fc, adafw
-FW_VAR=fixed
+FW_VAR=adafw
+FW_VAR_ref=fixed
 
+OUTDIR_ref=${OUTDIR}/${FW_VAR_ref}
 OUTDIR=${OUTDIR}/${FW_VAR}
 
 # Clean output directory
-echo -e "${HRED}Cleaning data $@${NC}" ; 
+echo -e "${HRED} Making data directory $@${NC}" ; 
 echo_and_run \
   mkdir -p ${OUTDIR}
 
 ## **********Run the mixture model************* ##
 ## exp - mixture, mixture_2d
 echo -e "${HGREEN} Running Boosted BBVI $@${NC}" ; 
-i=1000
+#i=1000
 #echo_and_run \
 #  python ${SRC}/scripts/mixture_model_relbo.py \
-#    --relbo_reg 1.0 \
-#    --relbo_anneal linear \
 #    --exp mixture \
 #    --fw_variant ${FW_VAR} \
 #    --outdir=${OUTDIR} \
-#    --n_fw_iter=50 \
+#    --n_fw_iter=2 \
 #    --LMO_iter=1000 \
 #    --n_monte_carlo_samples ${i} \
 #    --n_line_search_iter 25
+    #--relbo_reg 1.0 \
+    #--relbo_anneal linear \
 
 ## **********Running test script************* ##
 echo -e "${HPURPLE} Running test $@${NC}" ; 
@@ -77,21 +80,35 @@ iters=( 5  10 )
 ## **********Plotting results************* ##
 echo -e "${HCYAN} Plotting results $@${NC}" ; 
 
-#echo_and_run \
-#  python ${SRC}/plots/plot_single_mixture.py \
-#    --outdir=stdout \
-#    --target=${OUTDIR}/target_dist.npz \
-#    --qt=${OUTDIR}/qt_latest.npz,${OUTDIR}/qt_iter20.npz \
-#    --labels=latest,iter20 \
-##    --grid2d
+echo_and_run \
+  python ${SRC}/plots/plot_single_mixture.py \
+    --outdir=stdout \
+    --target=${OUTDIR}/target_dist.npz \
+    --qt=${OUTDIR_ref}/qt_iter20.npz,${OUTDIR}/qt_iter20.npz \
+    --labels=iter20_${FW_VAR_ref},iter20_${FW_VAR} \
+    #--grid2d
     #--qt=${OUTDIR}/qt_latest.npz,${OUTDIR}/qt_iter2.npz,${OUTDIR}/qt_iter0.npz \
     #--labels=latest,iter2,init \
 
 echo_and_run \
   python ${SRC}/plots/plot_mixture_comps.py \
     --outdir=stdout \
-    --qt=${OUTDIR}/qt_iter5.npz,${OUTDIR}/qt_iter3.npz \
-    --labels=iter5,iter3
+    --qt=${OUTDIR}/qt_iter5.npz \
+    --label=iter1
+
+echo_and_run \
+  python ${SRC}/plots/plot_mixture_comps.py \
+    --outdir=stdout \
+    --qt=${OUTDIR_ref}/qt_iter5.npz \
+    --label=iter1
+
+echo_and_run \
+  python ${SRC}/plots/plot_losses.py \
+    --elbos_files=${OUTDIR}/elbos.csv,${OUTDIR_ref}/elbos.csv \
+    --relbos_files=${OUTDIR}/relbos.csv,${OUTDIR_ref}/relbos.csv \
+    --kl_files=${OUTDIR}/kl.csv,${OUTDIR_ref}/kl.csv \
+    --times_files=${OUTDIR}/times.csv,${OUTDIR_ref}/times.csv \
+    --labels=${FW_VAR},${FW_VAR_ref}
 
 # outdir = stdout, ${DOC}/plots
 #all_runs=$(ls ${OUTDIR}/gradients/*)

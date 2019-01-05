@@ -1,5 +1,5 @@
 """
-Plot multiple 1d mixture models
+Plot multiple mixture models
 
 Usage:
     python plots/plot_single_mixture.py \
