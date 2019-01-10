@@ -37,15 +37,24 @@ def elbo(q, p, n_samples=1000):
     std = np.std(elbo_samples)
     return avg, std
 
-def divergence(q, p, metric='kl'):
+def divergence(q, p, metric='kl', n_monte_carlo_samples=1000):
     """Compute divergence measure between probability distributions.
     
     Args:
         q,p: probability distributions
         metric: only kl supported for now
+        n_monte_carlo_samples: number of monte carlo samples for estimate
     """
     if metric == 'kl':
-        return kl_divergence(q, p)
+        return kl_divergence(q, p, allow_nan_stats=False)
+    elif metric == 'dotproduct':
+        samples_q = q.sample([n_monte_carlo_samples])
+        distance_wrt_q = tf.reduce_mean(q.prob(samples_q) - p.prob(samples_q))
+        samples_p = p.sample([n_monte_carlo_samples])
+        distance_wrt_p = tf.reduce_mean(q.prob(samples_p) - p.prob(samples_p))
+        return (distance_wrt_q - distance_wrt_p)
+    elif metric == 'gradkl':
+        raise NotImplementedError('Metric not supported %s' % metric)
     else:
         raise NotImplementedError('Metric not supported %s' % metric)
 
@@ -72,20 +81,6 @@ def grad_kl(q, p, theta):
     """
     # Functional Gradient w.r.t q $\nabla KL(q || p) = \log q - \log p$
     return q.log_prob(theta) - p.log_prob(theta)
-
-# FIXME: samples can be from a different distribution
-def lmo(y, p, n_samples=1000):
-    """Approximate the lmo problem.
-    
-    Args:
-        q: current approximation
-        p: target distribution
-        n_samples: monte carlo samples to approximate gradients
-    """
-    # $f = \mathcal{D}^{KL}(y || p)$
-    # $\langle \nabla f , y \rangle = \mathbb{E}_{y}{\nabla f}$
-    sample_y = y.sample([n_samples])
-    return tf.reduce_mean(grad_kl(y, p, sample_y))
 
 @kullback_leibler.RegisterKL(RandomVariable, RandomVariable)
 def _kl_monte_carlo(q, p, n_samples=1000, name=None):

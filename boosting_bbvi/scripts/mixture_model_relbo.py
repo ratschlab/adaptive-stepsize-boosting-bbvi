@@ -137,7 +137,8 @@ def main(argv):
     weights, comps = [], []
     elbos, relbo_vals = [], []
     times = []
-    lipschitz_estimates = [1.0] # TODO initialize as suggested in paper
+    # TODO(sauravshekhar) initialize as suggested in paper
+    lipschitz_estimates = [1.0]
     duality_gaps, objective_values = [], []
     for iter in range(FLAGS.n_fw_iter):
         g = tf.Graph()
@@ -195,7 +196,6 @@ def main(argv):
                 elif FLAGS.fw_variant == 'fixed':
                     gamma = 2. / (iter + 2.)
                 elif FLAGS.fw_variant == 'line_search':
-                    logger.warning('Line search might not be working correctly')
                     start_line_search_time = time.time()
                     gamma = opt.line_search_dkl(
                         weights, [c['loc'] for c in comps],
@@ -226,10 +226,6 @@ def main(argv):
                     'scale_diag': s.stddev().eval()
                 })
                 weights = utils.update_weights(weights, gamma, iter)
-
-                #print("weights", weights)
-                #print("comps", [c['loc'] for c in comps])
-                #print("scale_diags", [c['scale_diag'] for c in comps])
 
                 q_latest = Mixture(
                     cat=Categorical(probs=tf.convert_to_tensor(weights)),

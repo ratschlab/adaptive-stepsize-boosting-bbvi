@@ -59,7 +59,7 @@ def adaptive_fw(**kwargs):
     new_locs.append(mu_s)
     new_diags.append(cov_s)
 
-    d_t_norm = kl_divergence(st_tf, qt_tf, allow_nan_stats=False).eval()
+    d_t_norm = divergence(st_tf, qt_tf, metric='dotproduct').eval()
     logger.info('distance norm is %.5f\n' % d_t_norm)
 
     if 'step_size_update' in kwargs:
