@@ -49,6 +49,10 @@ flags.DEFINE_string('exp', 'mixture',
 flags.DEFINE_enum(
     'fw_variant', 'fixed', ['fixed', 'line_search', 'fc', 'adafw'],
     '[fixed (default), line_search, fc] The Frank-Wolfe variant to use.')
+flags.DEFINE_enum('init', 'fixed',
+                  ['fixed', 'random', 'lipschitz_v2', 'lipschitz_v1'],
+                  'Initialization methods (random initialization of mixture)'
+                  'versions for lipschitz initializations')
 # flags.DEFINE_string('decay', 'log',
 # '[linear, log (default), squared] The decay rate to use for Lambda.')
 
@@ -138,7 +142,7 @@ def main(argv):
     elbos, relbo_vals = [], []
     times = []
     # TODO(sauravshekhar) initialize as suggested in paper
-    lipschitz_estimates = [1.0]
+    lipschitz_estimates = []
     duality_gaps, objective_values = [], []
     for iter in range(FLAGS.n_fw_iter):
         g = tf.Graph()
@@ -158,8 +162,6 @@ def main(argv):
                     cat=Categorical(probs=tf.convert_to_tensor(pi[0])),
                     components=pcomps)
 
-                # s is the solution to LMO. It is initialized randomly
-                s = construct_normal([n_features], iter, 's')
                 if iter > 0:
                     # current iterate (solution until now)
                     qtx = Mixture(
@@ -169,17 +171,24 @@ def main(argv):
                 else:
                     fw_iterates = {}
 
+                # s is the solution to LMO. It is initialized randomly
+                s = construct_normal([n_features], iter, 's')
+
                 sess.run(tf.global_variables_initializer())
 
                 total_time = 0
                 start_inference_time = time.time()
                 # Run inference on relbo to solve LMO problem
+                # If initilization of mixture is random, then the
+                # first component will be random distribution, in
+                # that case no inference is needed.
                 # NOTE: KLqp has a side effect, it is modifying s
-                inference = relbo.KLqp(
-                    {
-                        p: s
-                    }, fw_iterates=fw_iterates, fw_iter=iter)
-                inference.run(n_iter=FLAGS.LMO_iter)
+                if FLAGS.init != 'random' or iter > 0:
+                    inference = relbo.KLqp(
+                        {
+                            p: s
+                        }, fw_iterates=fw_iterates, fw_iter=iter)
+                    inference.run(n_iter=FLAGS.LMO_iter)
                 # s now contains solution to LMO
                 end_inference_time = time.time()
 
@@ -193,6 +202,9 @@ def main(argv):
                 step_result = {}
                 if iter == 0:
                     gamma = 1.
+                    if FLAGS.fw_variant == 'adafw':
+                        lipschitz_estimates.append(
+                            opt.adafw_linit(s, p, 'lipschitz_v2'))
                 elif FLAGS.fw_variant == 'fixed':
                     gamma = 2. / (iter + 2.)
                 elif FLAGS.fw_variant == 'line_search':

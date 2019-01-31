@@ -75,19 +75,9 @@ def test_mixture_same_mean_variance():
 
     samples_scipy = q_scipy.sample_n(N_SAMPLES)
     mean_scipy = np.mean(samples_scipy)
-    var_scipy = np.var(samples_scipy)
-    print('for Scipy.InfiniteMixtureScipy mean, variance...')
-    print_err(mixture_mean, mean_scipy)
-    print_err(mixture_var, var_scipy)
-
     with tf.Session() as sess:
         samples_tf = q_edward.sample([N_SAMPLES])
         mean_tf, var_tf = tf.nn.moments(tf.reshape(samples_tf, [-1]), [0])
         print('for Edward.Models mean, variance...')
         print_err(mixture_mean, mean_tf.eval())
-        print_err(mixture_var, var_tf.eval())
-
-
-if __name__ == "__main__":
-    test_mixture_same_mean_variance()
     test_mvn_same_as_edward_log_prob()

@@ -65,9 +65,9 @@ def plot_normal_mix(pis, mus, sigmas, ax, label=''):
         temp = stats.norm.pdf(grid, mu_mix, sigma_mix)
         # Do not multiply by weights and show unweighted distribution
         #temp *= weight_mix
-        final = final + temp
+        final = final + weight_mix * temp
         ax.plot(grid, temp, label='{}'.format(i))
-    ax.plot(grid, final, label='Mixture')
+    ax.plot(grid, final, '+', label='Mixture')
     ax.legend(fontsize=13)
 
 

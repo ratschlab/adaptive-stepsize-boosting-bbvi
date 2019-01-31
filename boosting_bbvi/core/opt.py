@@ -36,6 +36,59 @@ flags.DEFINE_integer(
     'Number of iterations line search gradient descent')
 
 # TODO(sauravshekhar) fix arguments
+def adafw_linit(q_0, p, init_method='fixed'):
+    """Initialization of L estimate for Adaptive
+    Frank Wolfe algorithm. Given in v2 of the
+    paper https://arxiv.org/pdf/1806.05123.pdf
+
+    Args:
+        q_0: initial iterate
+        p: target distribution
+        init_method: initialization method to use
+    Returns:
+        L initialized value, float
+    """
+    if init_method == 'fixed':
+        return 1.0
+    elif init_method != 'lipschitz_v2':
+        raise NotImplementedError('v1 not implemented')
+
+    # larger sample size for more accuracy
+    N_samples = FLAGS.n_monte_carlo_samples * 5
+    theta = q_0.sample([N_samples])
+    # grad_q0 = grad_kl(q_0, p, theta).eval()
+    log_q0 = q_0.log_prob(theta).eval()
+    log_p = p.log_prob(theta).eval()
+    grad_q0 = log_q0 - log_p
+    prob_q0 = q_0.prob(theta).eval()
+
+    def get_diff(L):
+        h = -1.*grad_q0 / L
+        # q_0 + h is not a valid probability distribution so values
+        # can get negative. Performing clipping before taking log
+        t0 = np.clip(prob_q0 + h, 1e-5, None)
+        #eprint('t0 range is [%.5f..%.5f] mean: %.5f +- %.5f' % (np.min(t0),
+        #                                                        np.max(t0),
+        #                                                        np.mean(t0),
+        #                                                        np.std(t0)))
+        t1 = np.log(t0)
+        t2 = np.mean(t1 - log_q0)
+        t3 = t1 - log_p
+        t4 = (h * t3) / prob_q0
+        t5 = np.mean(t4)
+        return t2 - t5
+
+    L_init_estimate = 1e1
+    while get_diff(L_init_estimate) > 0.:
+        debug('L estimate diff is %.5f for L %.2f' %
+              (get_diff(L_init_estimate), L_init_estimate))
+        L_init_estimate *= 10.
+    debug('L estimate diff is %.5f for L %.2f' %
+            (get_diff(L_init_estimate), L_init_estimate))
+    logger.info('initial Lipschitz estimate is %.5f\n' % L_init_estimate)
+    return L_init_estimate
+
+# TODO(sauravshekhar) fix arguments
 def adaptive_fw(**kwargs):
     """Adaptive Frank-Wolfe algorithm.
     
