@@ -15,6 +15,7 @@ _minted-*
 .Python
 env/
 build/
+logs/
 develop-eggs/
 dist/
 downloads/

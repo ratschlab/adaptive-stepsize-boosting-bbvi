@@ -34,9 +34,17 @@ flags.DEFINE_integer(
 flags.DEFINE_integer(
     'n_line_search_iter', 10,
     'Number of iterations line search gradient descent')
+flags.DEFINE_enum('linit', 'fixed',
+                  ['fixed', 'lipschitz_v2', 'lipschitz_v1'],
+                  'Initialization methods versions for lipschitz constant')
+flags.DEFINE_float('linit_fixed', 0.001,
+                   'Fixed initial estimate of Lipschitz constant')
+flags.DEFINE_integer('adafw_MAXITER', 32,
+                     'Maximum iterations of adaptive fw L estimation')
+flags.DEFINE_float('damping_adafw', 0.99, 'Damping constant')
+flags.DEFINE_float('exp_adafw', 2.0, 'Multiplicative factor in L')
 
-# TODO(sauravshekhar) fix arguments
-def adafw_linit(q_0, p, init_method='fixed'):
+def adafw_linit(q_0, p):
     """Initialization of L estimate for Adaptive
     Frank Wolfe algorithm. Given in v2 of the
     paper https://arxiv.org/pdf/1806.05123.pdf
@@ -44,13 +52,12 @@ def adafw_linit(q_0, p, init_method='fixed'):
     Args:
         q_0: initial iterate
         p: target distribution
-        init_method: initialization method to use
     Returns:
         L initialized value, float
     """
-    if init_method == 'fixed':
-        return 1.0
-    elif init_method != 'lipschitz_v2':
+    if FLAGS.linit == 'fixed':
+        return FLAGS.linit_fixed
+    elif FLAGS.linit != 'lipschitz_v2':
         raise NotImplementedError('v1 not implemented')
 
     # larger sample size for more accuracy
@@ -78,7 +85,7 @@ def adafw_linit(q_0, p, init_method='fixed'):
         t5 = np.mean(t4)
         return t2 - t5
 
-    L_init_estimate = 1e1
+    L_init_estimate = FLAGS.linit_fixed
     while get_diff(L_init_estimate) > 0.:
         debug('L estimate diff is %.5f for L %.2f' %
               (get_diff(L_init_estimate), L_init_estimate))
@@ -113,7 +120,7 @@ def adaptive_fw(**kwargs):
     new_diags.append(cov_s)
 
     d_t_norm = divergence(st_tf, qt_tf, metric='dotproduct').eval()
-    logger.info('distance norm is %.5f\n' % d_t_norm)
+    logger.info('distance norm is %.5f' % d_t_norm)
 
     if 'step_size_update' in kwargs:
         update_rule = kwargs['step_size_update']
@@ -128,7 +135,7 @@ def adaptive_fw(**kwargs):
     step_s = tf.reduce_mean(grad_kl(qt_tf, p, sample_s)).eval()
     step_q = tf.reduce_mean(grad_kl(qt_tf, p, sample_q)).eval()
     gap = step_q - step_s
-    logger.info('duality gap %.5f \n' % gap)
+    logger.info('duality gap %.5f' % gap)
     # FIXME this assertion is failing
     # Removing this condition will lead to NaN values in log probs in
     # further iterations.
@@ -137,13 +144,17 @@ def adaptive_fw(**kwargs):
 
     gamma = 2. / (fw_iter + 2.)
     # default values in the paper
-    tau, pow_tau, eta = 2.0, 1.0, 0.99
+    tau = FLAGS.exp_adafw
+    eta = FLAGS.damping_adafw
+    pow_tau = 1.0
     i, l_t = 0, l_prev
+    eprint('l_prev is %.5f' %(l_prev))
     f_t =  kl_divergence(qt_tf, p, allow_nan_stats=False).eval()
     # return intial estimate if gap is -ve
     while gap >= 0:
         # compute $L_t$ and $\gamma_t$
         l_t = pow_tau * eta * l_prev
+        eprint('l_t is %.7f' %(l_t))
         if update_rule == 'adaptive':
             gamma = min(gap / (l_t * d_t_norm), 1.0)
         else:
@@ -164,11 +175,17 @@ def adaptive_fw(**kwargs):
                 for loc, diag in zip(new_locs, new_diags)
             ])
         quad_bound_lhs = kl_divergence(qt_new, p, allow_nan_stats=False).eval()
-        logger.info('f_(qt_new) = %.5f, linear extrapolated = %.5f' %
-                    (quad_bound_lhs, quad_bound_rhs))
+        logger.info('lt = %.5f, gamma = %.3f, f_(qt_new) = %.5f, '
+                    'linear extrapolated = %.5f' % (l_t, gamma, quad_bound_lhs,
+                                                    quad_bound_rhs))
         if quad_bound_lhs <= quad_bound_rhs:
             break
         i += 1
+        if i > FLAGS.adafw_MAXITER:
+            # estimate not good
+            gamma = 2. / (fw_iter + 2.)
+            l_t = l_prev
+            break
         pow_tau *= tau
 
     if 'return_l' in kwargs and kwargs['return_l']:

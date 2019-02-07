@@ -49,10 +49,8 @@ flags.DEFINE_string('exp', 'mixture',
 flags.DEFINE_enum(
     'fw_variant', 'fixed', ['fixed', 'line_search', 'fc', 'adafw'],
     '[fixed (default), line_search, fc] The Frank-Wolfe variant to use.')
-flags.DEFINE_enum('init', 'fixed',
-                  ['fixed', 'random', 'lipschitz_v2', 'lipschitz_v1'],
-                  'Initialization methods (random initialization of mixture)'
-                  'versions for lipschitz initializations')
+flags.DEFINE_enum('iter0', 'vi', ['vi', 'random'],
+                  '1st component a random distribution or from vi')
 # flags.DEFINE_string('decay', 'log',
 # '[linear, log (default), squared] The decay rate to use for Lambda.')
 
@@ -183,7 +181,7 @@ def main(argv):
                 # first component will be random distribution, in
                 # that case no inference is needed.
                 # NOTE: KLqp has a side effect, it is modifying s
-                if FLAGS.init != 'random' or iter > 0:
+                if FLAGS.iter0 == 'vi' or iter > 0:
                     inference = relbo.KLqp(
                         {
                             p: s
@@ -203,8 +201,7 @@ def main(argv):
                 if iter == 0:
                     gamma = 1.
                     if FLAGS.fw_variant == 'adafw':
-                        lipschitz_estimates.append(
-                            opt.adafw_linit(s, p, 'lipschitz_v2'))
+                        lipschitz_estimates.append(opt.adafw_linit(s, p))
                 elif FLAGS.fw_variant == 'fixed':
                     gamma = 2. / (iter + 2.)
                 elif FLAGS.fw_variant == 'line_search':
