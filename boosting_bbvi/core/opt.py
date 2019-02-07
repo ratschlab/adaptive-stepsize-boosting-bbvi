@@ -148,13 +148,11 @@ def adaptive_fw(**kwargs):
     eta = FLAGS.damping_adafw
     pow_tau = 1.0
     i, l_t = 0, l_prev
-    eprint('l_prev is %.5f' %(l_prev))
     f_t =  kl_divergence(qt_tf, p, allow_nan_stats=False).eval()
     # return intial estimate if gap is -ve
     while gap >= 0:
         # compute $L_t$ and $\gamma_t$
         l_t = pow_tau * eta * l_prev
-        eprint('l_t is %.7f' %(l_t))
         if update_rule == 'adaptive':
             gamma = min(gap / (l_t * d_t_norm), 1.0)
         else:
