@@ -45,10 +45,10 @@ def plot_elbos(ax):
     for i, fname in enumerate(FLAGS.elbos_files):
         with open(fname, 'r') as f:
             elbos = [float(e.split(',')[0]) for e in f.readlines()]
-        plt.plot(elbos, label=FLAGS.labels[i])
+        ax.plot(elbos, label=FLAGS.labels[i])
         #plt.semilogy(elbos, label=FLAGS.labels[i])
     plt.ylabel('elbo')
-    plt.legend(loc='lower right')
+    #plt.legend(loc='lower right')
 
 
 def plot_relbos(ax):
@@ -66,9 +66,9 @@ def plot_kl(ax):
     for i, fname in enumerate(FLAGS.kl_files):
         with open(fname, 'r') as f:
             kl = list(map(float, f.readlines()))
-        plt.plot(kl, label=FLAGS.labels[i])
+        ax.plot(kl, label=FLAGS.labels[i])
     plt.ylabel('kl')
-    plt.legend(loc='lower right')
+    #plt.legend(loc='lower right')
 
 
 def plot_times(ax):
@@ -82,14 +82,16 @@ def plot_times(ax):
 def main(argv):
     del argv
     fig, axes = plt.subplots(nrows=2, ncols=2)
-    ax = plt.subplot(221)
+    ax = plt.subplot(121)
     plot_elbos(ax)
-    ax = plt.subplot(222)
-    plot_relbos(ax)
-    ax = plt.subplot(223)
+    ax = plt.subplot(122)
     plot_kl(ax)
-    ax = plt.subplot(224)
-    plot_times(ax)
+    #ax = plt.subplot(223)
+    #plot_relbos(ax)
+    #ax = plt.subplot(224)
+    #plot_times(ax)
+    handles, labels = ax.get_legend_handles_labels()
+    fig.legend(handles, labels, loc='center')
     plt.show()
 
 if __name__ == "__main__":
