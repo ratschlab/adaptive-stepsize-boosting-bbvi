@@ -149,6 +149,7 @@ def adaptive_fw(**kwargs):
     pow_tau = 1.0
     i, l_t = 0, l_prev
     f_t =  kl_divergence(qt_tf, p, allow_nan_stats=False).eval()
+    debug('f(q_t) = %.5f' % (f_t))
     # return intial estimate if gap is -ve
     while gap >= 0:
         # compute $L_t$ and $\gamma_t$
@@ -160,6 +161,7 @@ def adaptive_fw(**kwargs):
                     'demyanov et al 1970, fabian 2018 etc for other options.')
         d_1 = - gamma * gap
         d_2 = gamma * gamma * l_t * d_t_norm / 2.
+        debug('linear d1 = %.5f, quad d2 = %.5f' % (d_1, d_2))
         quad_bound_rhs = f_t  + d_1 + d_2
 
         # $w_{t + 1} = [(1 - \gamma)w_t, \gamma]$
