@@ -69,7 +69,6 @@ def main(argv):
         val_matrix[x, y] = get_best_metric(os.path.join(folder, "kl.csv"))
 
     debug(val_matrix)
-    # val_matrix = np.random.rand(4, 4)
 
     fig, ax = plt.subplots()
     im = ax.imshow(val_matrix, cmap='magma_r')
@@ -77,6 +76,8 @@ def main(argv):
     ax.set_yticks(np.arange(len(eta_list)))
     ax.set_xticklabels(tau_list)
     ax.set_yticklabels(eta_list)
+    ax.set_xlabel('tau')
+    ax.set_ylabel('eta')
     plt.setp(ax.get_xticklabels(), fontsize=16)
     plt.setp(ax.get_yticklabels(), fontsize=16)
 

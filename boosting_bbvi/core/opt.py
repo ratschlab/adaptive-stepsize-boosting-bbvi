@@ -146,6 +146,8 @@ def adaptive_fw(**kwargs):
     # default values in the paper
     tau = FLAGS.exp_adafw
     eta = FLAGS.damping_adafw
+    # did the adaptive loop suceed or not
+    step_type = "fixed"
     pow_tau = 1.0
     i, l_t = 0, l_prev
     f_t =  kl_divergence(qt_tf, p, allow_nan_stats=False).eval()
@@ -179,6 +181,7 @@ def adaptive_fw(**kwargs):
                     'linear extrapolated = %.5f' % (l_t, gamma, quad_bound_lhs,
                                                     quad_bound_rhs))
         if quad_bound_lhs <= quad_bound_rhs:
+            step_type = "adaptive"
             break
         i += 1
         if i > FLAGS.adafw_MAXITER:
@@ -189,7 +192,12 @@ def adaptive_fw(**kwargs):
         pow_tau *= tau
 
     if 'return_l' in kwargs and kwargs['return_l']:
-        return {'gamma': gamma, 'l_estimate': l_t, 'gap': gap}
+        return {
+            'gamma': gamma,
+            'l_estimate': l_t,
+            'gap': gap,
+            'step_type': step_type
+        }
     return gamma
 
 

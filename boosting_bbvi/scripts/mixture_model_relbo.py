@@ -141,7 +141,7 @@ def main(argv):
     times = []
     # TODO(sauravshekhar) initialize as suggested in paper
     lipschitz_estimates = []
-    duality_gaps, objective_values = [], []
+    duality_gaps, objective_values, iter_types = [], [], []
     for iter in range(FLAGS.n_fw_iter):
         g = tf.Graph()
         with g.as_default():
@@ -262,6 +262,10 @@ def main(argv):
                 if FLAGS.fw_variant == 'adafw' and iter > 0:
                     duality_gaps.append(step_result['gap'])
                     lipschitz_estimates.append(step_result['l_estimate'])
+                    iter_types.append(step_result['step_type'])
+                    logger.info('gap = %.3f, lt = %.5f, iter_type = %s' %
+                                (step_result['gap'], step_result['l_estimate'],
+                                 step_result['step_type']))
 
                 print("total time", total_time)
                 outdir = setup_outdir(FLAGS.outdir)
@@ -284,15 +288,17 @@ def main(argv):
                 logger.info("saving kl divergence to, %s" % objective_filename)
 
                 if FLAGS.fw_variant == 'adafw':
-                    lipschitz_filename = os.path.join(outdir,'lipschitz.csv')
                     np.savetxt(
-                        lipschitz_filename, lipschitz_estimates, delimiter=',')
-                    logger.info(
-                        "saving lipschitz values to, %s" % lipschitz_filename)
-
-                    gap_filename = os.path.join(outdir, 'gap.csv')
-                    np.savetxt(gap_filename, duality_gaps, delimiter=',')
-                    logger.info("saving duality gap to, %s" % gap_filename)
+                        os.path.join(outdir, 'lipschitz.csv'),
+                        lipschitz_estimates,
+                        delimiter=',')
+                    np.savetxt(
+                        os.path.join(outdir, 'gap.csv'),
+                        duality_gaps,
+                        delimiter=',')
+                    with open(os.path.join(outdir, 'iter_types.txt'), 'w') as f:
+                        for e in iter_types:
+                            f.write(e + '\n')
 
                 for_serialization = {
                     'locs': np.array([c['loc'] for c in comps]),
