@@ -5,6 +5,7 @@ Usage:
     python plot_mixture_comps.py \
             --outdir=stdout \
             --qt=/path/qt_iter25.npz \
+            --iter_labels=/path/iter_types.txt \
             --label=iter25
 """
 
@@ -24,6 +25,7 @@ from absl import flags
 
 import matplotlib
 matplotlib.use('TkAgg')
+import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn as sns
@@ -45,6 +47,7 @@ flags.DEFINE_string('ylabel', 'y', '')
 flags.DEFINE_string('xlabel', 'x', '')
 flags.DEFINE_string('qt', "", 'iteration to visualize')
 flags.DEFINE_string('label', '', 'label to be associated with the qt')
+flags.DEFINE_string('iter_labels', '', 'label file to be associated with iters')
 flags.DEFINE_boolean('widegrid', False, 'range for the x-axis')
 flags.DEFINE_boolean('grid2d', False, '3D plot')
 
@@ -89,14 +92,36 @@ def main(argv):
         label = qt_file[qt_file.find('qt_') + len('qt_'):]
 
     plt.figure(1)
-    debug("visualizing %s" % os.path.basename(FLAGS.qt))
+    debug("visualizing %s" % FLAGS.qt)
     mixture_params = get_mixture_params_from_file(FLAGS.qt)
-    plot_normal_mix(mixture_params['weights'], mixture_params['locs'],
-                    mixture_params['scale_diags'], plt, label)
+    #plot_normal_mix(mixture_params['weights'], mixture_params['locs'],
+    #                mixture_params['scale_diags'], plt, label)
 
     plt.figure(2)
     w = mixture_params['weights']
-    plt.bar(np.arange(len(w)), w, color='b', label=label)
+    barlist = plt.bar(np.arange(len(w)), w, color='b', label=label)
+
+    if FLAGS.iter_labels:
+        label_name = os.path.basename(FLAGS.iter_labels)
+        if label_name.startswith('iter_types'):
+            # label which iterations came from adaptive which
+            # from fixed.
+            with open(FLAGS.iter_labels, 'r') as f:
+                iter_types = f.readlines()
+            for i, it in enumerate(iter_types):
+                it = it.strip()
+                if it != 'adaptive':
+                    if it == 'fixed':
+                        barlist[i + 1].set_color('r')
+                    elif it == 'fixed_adaptive_MAXITER':
+                        barlist[i + 1].set_color('g')
+                    else:
+                        barlist[i + 1].set_color('k')
+            ad = mpatches.Patch(color='b', label='Adaptive step')
+            fi = mpatches.Patch(color='r', label='Fixed step (adafw loop long)')
+            fa = mpatches.Patch(color='g', label='Fixed step (-ve gap)')
+            plt.legend(handles=[ad, fi, fa], loc=2)
+
 
     if FLAGS.outdir == 'stdout':
         plt.show()
