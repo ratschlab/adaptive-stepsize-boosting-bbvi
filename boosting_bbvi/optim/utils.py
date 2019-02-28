@@ -3,7 +3,6 @@
 Contains different divergence measures, metrics etc.
 
 """
-import os
 import numpy as np
 import tensorflow as tf
 from tensorflow.contrib.distributions import kl_divergence
@@ -42,7 +41,7 @@ def divergence(q, p, metric='kl', n_monte_carlo_samples=1000):
     
     Args:
         q,p: probability distributions
-        metric: only kl supported for now
+        metric: divergence metric
         n_monte_carlo_samples: number of monte carlo samples for estimate
     """
     if metric == 'kl':

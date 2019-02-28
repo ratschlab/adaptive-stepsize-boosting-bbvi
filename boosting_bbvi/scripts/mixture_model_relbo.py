@@ -17,24 +17,13 @@ python scripts/mixture_model_relbo.py \
 import os
 import sys
 import numpy as np
-import time
-
 import tensorflow as tf
-from tensorflow.contrib.distributions import kl_divergence
-
-from edward.models import (Categorical, Dirichlet, Empirical, InverseGamma,
-                           MultivariateNormalDiag, Normal, ParamMixture,
-                           Mixture)
-
 import edward as ed
-
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", ".."))
 import boosting_bbvi.core.relbo as relbo
-import boosting_bbvi.core.utils as utils
-from boosting_bbvi.core.opt_utils import elbo, setup_outdir
-import boosting_bbvi.core.opt as opt
-from boosting_bbvi.core.utils import eprint, debug
-logger = utils.get_logger()
+import boosting_bbvi.core.utils as coreutils
+import boosting_bbvi.optim.fw as optim
+logger = coreutils.get_logger()
 
 
 flags = tf.app.flags
@@ -42,18 +31,8 @@ FLAGS = flags.FLAGS
 flags.DEFINE_string('outdir', '/tmp',
                     'directory to store all the results, models, plots, etc.')
 flags.DEFINE_integer('seed', 0, 'The random seed to use for everything.')
-flags.DEFINE_integer('n_fw_iter', 100, '')
-flags.DEFINE_integer('LMO_iter', 1000, '')
 flags.DEFINE_string('exp', 'mixture',
                     'select from [mixture, s_and_s (aka spike and slab), many]')
-flags.DEFINE_enum(
-    'fw_variant', 'fixed', ['fixed', 'line_search', 'fc', 'adafw'],
-    '[fixed (default), line_search, fc] The Frank-Wolfe variant to use.')
-flags.DEFINE_enum('iter0', 'vi', ['vi', 'random'],
-                  '1st component a random distribution or from vi')
-# flags.DEFINE_string('decay', 'log',
-# '[linear, log (default), squared] The decay rate to use for Lambda.')
-
 ed.set_seed(FLAGS.seed)
 np.random.seed(FLAGS.seed)
 
@@ -99,219 +78,29 @@ def build_toy_dataset(N, D=1):
     return x, ks
 
 
-def construct_multivariatenormaldiag(dims, iter, name='', sample_shape=N):
-    #loc = tf.get_variable(name + "_loc%d" % iter, dims)
-    loc = tf.get_variable(
-        name + "_loc%d" % iter, initializer=tf.random_normal(dims))
-    #scale = tf.nn.softplus(tf.get_variable(name + "_scale%d" % iter, dims))
-    scale = tf.nn.softplus(
-        tf.get_variable(
-            name + "_scale%d" % iter, initializer=tf.random_normal(dims)))
-    mvn = MultivariateNormalDiag(
-        loc=loc, scale_diag=scale, sample_shape=sample_shape)
-    return mvn
-
-
-def construct_normal(dims, iter, name=''):
-    loc = tf.get_variable(
-        name + "_loc%d" % iter,
-        initializer=tf.random_normal(dims) + np.random.normal())
-    scale = tf.get_variable(
-        name + "_scale%d" % iter, initializer=tf.random_normal(dims))
-    return Normal(loc=loc, scale=tf.nn.softplus(scale))
-
-
 def main(argv):
     del argv
 
+    # create dataset
     if FLAGS.exp.endswith('2d'):
         x_train, components = build_toy_dataset(N, D=2)
     else:
         x_train, components = build_toy_dataset(N)
+
     n_examples, n_features = x_train.shape
 
-    # save the target
-    outdir = setup_outdir(FLAGS.outdir)
-    np.savez(os.path.join(outdir, 'target_dist.npz'), pi=pi, mus=mus, stds=stds)
+    outdir = FLAGS.outdir
+    if '~' in outdir: outdir = os.path.expanduser(outdir)
+    os.makedirs(outdir, exist_ok=True)
 
-    # comps are the component atoms of boosting
-    # weights are weights given every iter over comps
-    weights, comps = [], []
-    elbos, relbo_vals = [], []
-    times = []
-    # TODO(sauravshekhar) initialize as suggested in paper
-    lipschitz_estimates = []
-    duality_gaps, objective_values, iter_types = [], [], []
-    for iter in range(FLAGS.n_fw_iter):
-        g = tf.Graph()
-        with g.as_default():
-            tf.set_random_seed(FLAGS.seed)
-            sess = tf.InteractiveSession()
-            with sess.as_default():
-                # build target distribution
-                pcomps = [
-                    MultivariateNormalDiag(
-                        loc=tf.convert_to_tensor(mus[i], dtype=tf.float32),
-                        scale_diag=tf.convert_to_tensor(
-                            stds[i], dtype=tf.float32))
-                    for i in range(len(mus))
-                ]
-                p = Mixture(
-                    cat=Categorical(probs=tf.convert_to_tensor(pi[0])),
-                    components=pcomps)
-
-                if iter > 0:
-                    # current iterate (solution until now)
-                    qtx = Mixture(
-                        cat=Categorical(probs=tf.convert_to_tensor(weights)),
-                        components=[MultivariateNormalDiag(**c) for c in comps])
-                    fw_iterates = {p: qtx}
-                else:
-                    fw_iterates = {}
-
-                # s is the solution to LMO. It is initialized randomly
-                s = construct_normal([n_features], iter, 's')
-
-                sess.run(tf.global_variables_initializer())
-
-                total_time = 0
-                start_inference_time = time.time()
-                # Run inference on relbo to solve LMO problem
-                # If initilization of mixture is random, then the
-                # first component will be random distribution, in
-                # that case no inference is needed.
-                # NOTE: KLqp has a side effect, it is modifying s
-                if FLAGS.iter0 == 'vi' or iter > 0:
-                    inference = relbo.KLqp(
-                        {
-                            p: s
-                        }, fw_iterates=fw_iterates, fw_iter=iter)
-                    inference.run(n_iter=FLAGS.LMO_iter)
-                # s now contains solution to LMO
-                end_inference_time = time.time()
-
-                total_time += end_inference_time - start_inference_time
-
-                if iter > 0:
-                    relbo_vals.append(-utils.compute_relbo(
-                        s, fw_iterates[p], p, np.log(iter + 1)))
-
-                # compute step size to update the next iterate
-                step_result = {}
-                if iter == 0:
-                    gamma = 1.
-                    if FLAGS.fw_variant == 'adafw':
-                        lipschitz_estimates.append(opt.adafw_linit(s, p))
-                elif FLAGS.fw_variant == 'fixed':
-                    gamma = 2. / (iter + 2.)
-                elif FLAGS.fw_variant == 'line_search':
-                    start_line_search_time = time.time()
-                    gamma = opt.line_search_dkl(
-                        weights, [c['loc'] for c in comps],
-                        [c['scale_diag'] for c in comps], s.loc.eval(),
-                        s.stddev().eval(), p, iter, FLAGS.outdir)
-                    end_line_search_time = time.time()
-                    total_time += end_line_search_time - start_line_search_time
-                elif FLAGS.fw_variant == 'fc':
-                    gamma = 2. / (iter + 2.)
-                elif FLAGS.fw_variant == 'adafw':
-                    logger.warning('AdaFW might not be correct')
-                    step_result = opt.adaptive_fw(
-                        fw_iter=iter,
-                        p=p,
-                        weights=weights,
-                        l_prev=lipschitz_estimates[-1],
-                        s_t=s,
-                        mu_s=s.loc.eval(),
-                        cov_s=s.stddev().eval(),
-                        q_t=qtx,
-                        locs=[c['loc'] for c in comps],
-                        diags=[c['scale_diag'] for c in comps],
-                        return_l=True)
-                    gamma = step_result['gamma']
-
-                comps.append({
-                    'loc': s.mean().eval(),
-                    'scale_diag': s.stddev().eval()
-                })
-                weights = utils.update_weights(weights, gamma, iter)
-
-                q_latest = Mixture(
-                    cat=Categorical(probs=tf.convert_to_tensor(weights)),
-                    components=[MultivariateNormalDiag(**c) for c in comps])
-
-                if FLAGS.fw_variant == "fc":
-                    start_fc_time = time.time()
-                    weights = opt.fully_corrective(q_latest, p)
-                    weights = list(weights)
-                    for i in reversed(range(len(weights))):
-                        w = weights[i]
-                        if w == 0:
-                            del weights[i]
-                            del comps[i]
-                    weights = np.array(weights)
-                    end_fc_time = time.time()
-                    total_time += end_fc_time - start_fc_time
-
-                q_latest = Mixture(
-                    cat=Categorical(probs=tf.convert_to_tensor(weights)),
-                    components=[MultivariateNormalDiag(**c) for c in comps])
-
-                elbos.append(elbo(q_latest, p))
-                objective_values.append(kl_divergence(q_latest, p).eval())
-                if FLAGS.fw_variant == 'adafw' and iter > 0:
-                    duality_gaps.append(step_result['gap'])
-                    lipschitz_estimates.append(step_result['l_estimate'])
-                    iter_types.append(step_result['step_type'])
-                    logger.info('gap = %.3f, lt = %.5f, iter_type = %s' %
-                                (step_result['gap'], step_result['l_estimate'],
-                                 step_result['step_type']))
-
-                print("total time", total_time)
-                outdir = setup_outdir(FLAGS.outdir)
-                times.append(float(total_time))
-                utils.save_times(os.path.join(outdir, 'times.csv'), times)
-
-                elbos_filename = os.path.join(outdir, 'elbos.csv')
-                logger.info("iter, %d, elbo, %.2f +/- %.2f" % (iter,
-                                                               *elbos[-1]))
-                np.savetxt(elbos_filename, elbos, delimiter=',')
-                logger.info("saving elbos to, %s" % elbos_filename)
-
-                relbos_filename = os.path.join(outdir, 'relbos.csv')
-                np.savetxt(relbos_filename, relbo_vals, delimiter=',')
-                logger.info("saving relbo values to, %s" % relbos_filename)
-
-                objective_filename = os.path.join(outdir, 'kl.csv')
-                logger.info("iter, %d, kl, %.2f" % (iter, objective_values[-1]))
-                np.savetxt(objective_filename, objective_values, delimiter=',')
-                logger.info("saving kl divergence to, %s" % objective_filename)
-
-                if FLAGS.fw_variant == 'adafw':
-                    np.savetxt(
-                        os.path.join(outdir, 'lipschitz.csv'),
-                        lipschitz_estimates,
-                        delimiter=',')
-                    np.savetxt(
-                        os.path.join(outdir, 'gap.csv'),
-                        duality_gaps,
-                        delimiter=',')
-                    with open(os.path.join(outdir, 'iter_types.txt'), 'w') as f:
-                        for e in iter_types:
-                            f.write(e + '\n')
-
-                for_serialization = {
-                    'locs': np.array([c['loc'] for c in comps]),
-                    'scale_diags': np.array([c['scale_diag'] for c in comps])
-                }
-                qt_outfile = os.path.join(outdir, 'qt_iter%d.npz' % iter)
-                np.savez(qt_outfile, weights=weights, **for_serialization)
-                np.savez(
-                    os.path.join(outdir, 'qt_latest.npz'),
-                    weights=weights,
-                    **for_serialization)
-                logger.info("saving qt to, %s" % qt_outfile)
-        tf.reset_default_graph()
+    # NOTE: in this case the joint model p(x, z) is the same 
+    # as the target posterior p(z | x). Save the target
+    np.savez(
+        os.path.join(outdir, 'target_dist.npz'), pi=pi, mus=mus, stds=stds)
+    
+    # Run frank-wolfe
+    boosted_bbvi = optim.FWOptimizer()
+    boosted_bbvi.run(outdir, pi, mus, stds, n_features)
 
 
 if __name__ == "__main__":

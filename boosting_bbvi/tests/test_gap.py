@@ -1,29 +1,31 @@
 """Show duality gap for a simple run of FW.
+
+Usage:
+    python test_gap.py \
+            --n_fw_iter 10 \
+            --LMO_iter 1000 \
+            --n_monte_carlo_samples 1000
 """
 
 import os
 import sys
 import numpy as np
 import time
-
 import tensorflow as tf
-
 from edward.models import (Categorical, Dirichlet, Empirical, InverseGamma,
                            MultivariateNormalDiag, Normal, ParamMixture,
                            Mixture)
-
 import edward as ed
 from tensorflow.contrib.distributions import kl_divergence
-
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", ".."))
 import boosting_bbvi.core.relbo as relbo
-import boosting_bbvi.core.utils as utils
-from boosting_bbvi.core.opt_utils import elbo, setup_outdir
-from boosting_bbvi.core.opt_utils import grad_kl
-import boosting_bbvi.core.opt as opt
-from boosting_bbvi.core.utils import eprint, debug
-from boosting_bbvi.scripts.mixture_model_relbo import construct_normal
-logger = utils.get_logger()
+import boosting_bbvi.core.utils as coreutils
+from boosting_bbvi.optim.utils import elbo, setup_outdir, grad_kl
+import boosting_bbvi.optim.fw_step_size as opt
+import boosting_bbvi.optim.fw as optim
+import boosting_bbvi.scripts.mixture_model_relbo as mm
+from boosting_bbvi.core.utils import eprint, debug, construct_normal
+logger = coreutils.get_logger()
 
 
 flags = tf.app.flags
@@ -60,7 +62,9 @@ def run_gap(pi, mus, stds):
                 if t > 0:
                     qtx = Mixture(
                         cat=Categorical(probs=tf.convert_to_tensor(weights)),
-                        components=[MultivariateNormalDiag(**c) for c in comps])
+                        components=[
+                            MultivariateNormalDiag(**c) for c in comps
+                        ])
                     fw_iterates = {p: qtx}
                 sess.run(tf.global_variables_initializer())
                 # Run inference on relbo to solve LMO problem
@@ -90,7 +94,7 @@ def run_gap(pi, mus, stds):
                     'loc': s.mean().eval(),
                     'scale_diag': s.stddev().eval()
                 })
-                weights = utils.update_weights(weights, gamma, t)
+                weights = coreutils.update_weights(weights, gamma, t)
 
         tf.reset_default_graph()
 

@@ -3,9 +3,8 @@
 Usage:
     python test_step_size.py \
             --exp mixture \
-            --n_monte_carlo_samples 10 \
+            --n_monte_carlo_samples 100 \
             --n_line_search_iter 10 \
-            --outdir=out_path/test \
             --fw_variant=line_search \
             --linit_fixed 0.001 \
             --damping_adafw 0.5 \
@@ -31,15 +30,17 @@ plt.style.use('ggplot')
 from colorama import Fore, Style
 import os, sys
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", ".."))
-import boosting_bbvi.core.opt as opt
+import boosting_bbvi.optim.fw_step_size as opt
 import boosting_bbvi.scripts.mixture_model_relbo as mixture_model_relbo
-import boosting_bbvi.core.utils as utils
-logger = utils.get_logger()
+import boosting_bbvi.core.utils as coreutils
+logger = coreutils.get_logger()
 
 flags = tf.app.flags
 FLAGS = flags.FLAGS
 
-flags.DEFINE_float('init_k', 0., 'Used to Initialize (simulating fw iteration)')
+flags.DEFINE_float('init_k', 0.,
+                   'Used to Initialize (simulating fw iteration)')
+
 
 def print_err(true, calculated):
     if isinstance(true, np.ndarray):
@@ -177,17 +178,17 @@ def test_adaptive_gamma():
                 scale_diag=tf.convert_to_tensor(stds[2], dtype=tf.float32))
 
             gamma = opt.adaptive_fw(
-                    fw_iter=FLAGS.init_k,
-                    p=p,
-                    weights=pi[:2],
-                    l_prev=opt.adafw_linit(qt, p),
-                    s_t=st,
-                    mu_s=mus[2],
-                    cov_s=stds[2],
-                    q_t=qt,
-                    locs=mus[:2],
-                    diags=stds[:2],
-                    return_l=False)
+                weights=pi[:2],
+                locs=mus[:2],
+                diags=stds[:2],
+                q_t=qt,
+                mu_s=mus[2],
+                cov_s=stds[2],
+                s_t=st,
+                p=p,
+                k=FLAGS.init_k,
+                l_prev=opt.adafw_linit(qt, p),
+                return_gamma=True)
     print_err(pi[2], gamma)
 
 
@@ -216,37 +217,39 @@ def test_exact_gamma():
             weights = [1.]
             locs = [mus[0]]
             diags = [stds[0]]
+            # Create current iter $q_t$
+            qt = Mixture(
+                cat=Categorical(probs=tf.convert_to_tensor(weights)),
+                components=[
+                    MultivariateNormalDiag(loc=loc, scale_diag=diag)
+                    for loc, diag in zip(locs, diags)
+                ])
+            s = MultivariateNormalDiag(loc=mus[1], scale_diag=stds[1])
             if FLAGS.fw_variant == "line_search":
-                gamma = opt.line_search_dkl(weights, locs, diags, mus[1], stds[1],
-                                            p, FLAGS.init_k, FLAGS.outdir)
+                gamma = opt.line_search_dkl(weights, locs, diags, qt, mus[1],
+                                            stds[1], s, p, FLAGS.init_k,
+                                            return_gamma=True)
             elif FLAGS.fw_variant == "adafw":
-                qt = Mixture(
-                    cat=Categorical(probs=tf.convert_to_tensor(weights)),
-                    components=[
-                        MultivariateNormalDiag(loc=loc, scale_diag=diag)
-                        for loc, diag in zip(locs, diags)
-                    ])
-                s = MultivariateNormalDiag(loc=mus[1], scale_diag=stds[1])
                 gamma = opt.adaptive_fw(
-                    fw_iter=FLAGS.init_k,
-                    p=p,
                     weights=weights,
-                    l_prev=1.,
-                    s_t=s,
-                    mu_s=mus[1],
-                    cov_s=stds[1],
-                    q_t=qt,
                     locs=locs,
                     diags=diags,
-                    return_l=False)
+                    q_t=qt,
+                    mu_s=mus[1],
+                    cov_s=stds[1],
+                    s_t=s,
+                    p=p,
+                    k=FLAGS.init_k,
+                    l_prev=1.,
+                    return_gamma=True)
             else:
                 raise NotImplementedError('other variants not tested yet.')
     print_err(pi[0][1], gamma)
 
 def main(argv):
-    #test_exact_gamma()
-    #test_adaptive_gamma()
-    plot_objective()
+    test_exact_gamma()
+    test_adaptive_gamma()
+    #plot_objective()
 
 
 if __name__ == "__main__":

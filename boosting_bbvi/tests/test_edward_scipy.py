@@ -1,4 +1,9 @@
 """Test if Mixture from Edward and scipy.InfiniteMixtureScipy are equal.
+
+Prints relative error of the distributions.
+
+Usage:
+    python test_edward_scipy.py
 """
 
 import os
@@ -7,7 +12,8 @@ import numpy as np
 
 import tensorflow as tf
 
-from edward.models import (Categorical, Normal, MultivariateNormalDiag, Mixture)
+from edward.models import (Categorical, Normal, MultivariateNormalDiag,
+                           Mixture)
 
 import edward as ed
 import scipy.stats as stats
@@ -15,7 +21,7 @@ import scipy.stats as stats
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", ".."))
 from boosting_bbvi.tests.test_step_size import print_err
 from boosting_bbvi.core.utils import eprint, debug
-from boosting_bbvi.scripts.mixture_model_relbo import construct_normal
+from boosting_bbvi.core.utils import construct_normal
 from boosting_bbvi.core.infinite_mixture import InfiniteMixtureScipy
 import boosting_bbvi.core.mvn as mvn
 
@@ -81,3 +87,10 @@ def test_mixture_same_mean_variance():
         print('for Edward.Models mean, variance...')
         print_err(mixture_mean, mean_tf.eval())
     test_mvn_same_as_edward_log_prob()
+
+def main(argv):
+    test_mvn_same_as_edward_log_prob()
+    test_mixture_same_mean_variance()
+
+if __name__ == "__main__":
+    tf.app.run()

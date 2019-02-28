@@ -1,18 +1,22 @@
 """Tests for optimization utilities.
 
-Also tests functionalities like KL Divergence and its gradients.
+Prints accuracy of the monte carlo KL divergence estimate for different
+pairs of distrbutions and sample sizes.
+
+Usage:
+    python test_opt_utils.py
 """
 import tensorflow as tf
 
 import os, sys
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", ".."))
-import boosting_bbvi.core.opt as opt
-import boosting_bbvi.core.opt_utils as opt_utils
+import boosting_bbvi.optim.fw_step_size as opt
+import boosting_bbvi.optim.utils as opt_utils
 from boosting_bbvi.tests.test_step_size import print_err
 from edward.models import Normal
 from tensorflow.python.ops.distributions import normal
-import boosting_bbvi.core.utils as utils
-logger = utils.get_logger()
+import boosting_bbvi.core.utils as coreutils
+logger = coreutils.get_logger()
 
 
 def test_kl_monte_carlo():
