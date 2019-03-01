@@ -36,6 +36,27 @@ def elbo(q, p, n_samples=1000):
     std = np.std(elbo_samples)
     return avg, std
 
+def argmax_grad_dotp(p, q, candidates, n_samples=1000):
+    u"""Find the candidate most aligned with ascent of objective function.
+
+    (Or most unaligned with descent direction -∇f)
+    Objective function here is KL(q||p). Ascent direction is ∇f
+    
+    Args:
+        p, q, candidates
+    Returns:
+        Index of optimum candidate, and value
+    """
+    max_i, max_step = None, None
+    for i, s in enumerate(candidates):
+        sample_s = s.sample([n_samples])
+        step_s = tf.reduce_mean(grad_kl(q, p, sample_s)).eval()
+        if i == 0 or max_step < step_s:
+            max_step = step_s
+            max_i = i
+    return max_i, max_step
+
+
 def divergence(q, p, metric='kl', n_monte_carlo_samples=1000):
     """Compute divergence measure between probability distributions.
     

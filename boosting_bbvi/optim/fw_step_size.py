@@ -12,7 +12,7 @@ from edward.models import (Categorical, Dirichlet, Empirical, InverseGamma,
 from scipy.misc import logsumexp as logsumexp
 
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", ".."))
-from boosting_bbvi.optim.utils import divergence, grad_kl
+from boosting_bbvi.optim.utils import divergence, grad_kl, argmax_grad_dotp
 from boosting_bbvi.core.utils import eprint, debug
 import boosting_bbvi.core.utils as coreutils
 logger = coreutils.get_logger()
@@ -89,6 +89,155 @@ def adafw_linit(q_0, p):
     logger.info('initial Lipschitz estimate is %.5f\n' % L_init_estimate)
     return L_init_estimate
 
+
+def adaptive_afw(weights, comps, locs, diags, q_t, mu_s, cov_s, s_t, p,
+                 k, l_prev):
+    """
+    ...two steps from hell...
+    """
+    d_t_norm = divergence(s_t, q_t, metric=FLAGS.distance_metric).eval()
+    logger.info('distance norm is %.5f' % d_t_norm)
+
+    # Find v_t
+    qcomps = q_t.components
+    index_v_t, step_v_t = argmax_grad_dotp(p, q_t, qcomps,
+                                           FLAGS.n_monte_carlo_samples)
+    v_t = qcomps[index_v_t]
+
+    # Frank-Wolfe gap
+    sample_q = q_t.sample([FLAGS.n_monte_carlo_samples])
+    sample_s = s_t.sample([FLAGS.n_monte_carlo_samples])
+    step_s = tf.reduce_mean(grad_kl(q_t, p, sample_s)).eval()
+    step_q = tf.reduce_mean(grad_kl(q_t, p, sample_q)).eval()
+    gap_fw = step_q - step_s
+    if gap_fw < 0: logger.warning("Frank-Wolfe duality gap is negative")
+    # Away gap
+    gap_a = step_v_t - step_q
+    if gap_a < 0: eprint('Away gap < 0!!!')
+    logger.info('fw gap %.5f, away gap %.5f' % (gap_fw, gap_a))
+
+    # Set $q_{t+1}$'s params
+    new_locs = copy.copy(locs)
+    new_diags = copy.copy(diags)
+    # FIXME(sauravshekhar): In case of one component w will be 1.0
+    # fix FW direction in that case as w / (1 - w) will cause issues
+    if (gap_fw >= gap_a) or (len(comps) == 1):
+        # FW direction, proceeds exactly as adafw
+        logger.info('Proceeding in FW direction ')
+        adaptive_step_type = 'fw'
+        gap = gap_fw
+        new_locs.append(mu_s)
+        new_diags.append(cov_s)
+        gamma_max = 1.0
+    else:
+        # Away direction
+        logger.info('Proceeding in Away direction ')
+        adaptive_step_type = 'away'
+        gap = gap_a
+        if weights[index_v_t] < 1.0:
+            gamma_max = weights[index_v_t] / (1.0 - weights[index_v_t])
+        else:
+            gamma_max = 100. # Large value when t = 1
+
+    tau = FLAGS.exp_adafw
+    eta = FLAGS.damping_adafw
+    pow_tau = 1.0
+    i, l_t = 0, l_prev
+    f_t =  kl_divergence(q_t, p, allow_nan_stats=False).eval()
+    debug('f(q_t) = %.5f' % (f_t))
+    while True:
+        # compute $L_t$ and $\gamma_t$
+        l_t = pow_tau * eta * l_prev
+        # NOTE: Handle extreme values of gamma carefully
+        gamma = min(gap / (l_t * d_t_norm), gamma_max)
+
+        d_1 = - gamma * gap
+        d_2 = gamma * gamma * l_t * d_t_norm / 2.
+        debug('linear d1 = %.5f, quad d2 = %.5f' % (d_1, d_2))
+        quad_bound_rhs = f_t  + d_1 + d_2
+
+        # construct $q_{t + 1}$
+        if adaptive_step_type == 'fw':
+            if gamma == gamma_max:
+                # gamma = 1.0, q_{t + 1} = s_t
+                new_comps = [{'loc': mu_s, 'scale_diag': cov_s}]
+                new_weights = [1.]
+                qt_new = MultivariateNormalDiag(loc=mu_s, scale_diag=cov_s)
+            else:
+                new_comps = copy.copy(comps)
+                new_comps.append({'loc': mu_s, 'scale_diag': cov_s})
+                new_weights = copy.copy(weights)
+                new_weights = [(1. - gamma) * w for w in new_weights]
+                new_weights.append(gamma)
+                qt_new = Mixture(
+                    cat=Categorical(probs=tf.convert_to_tensor(new_weights)),
+                    components=[
+                        MultivariateNormalDiag(loc=loc, scale_diag=diag)
+                        for loc, diag in zip(new_locs, new_diags)
+                    ])
+        elif adaptive_step_type == 'away':
+            new_weights = copy.copy(weights)
+            new_comps = copy.copy(comps)
+            if gamma == gamma_max:
+                # drop v_t
+                """
+                ...one step too far...
+                """
+                logger.info('...drop step')
+                del new_weights[index_v_t]
+                new_weights = [(1. + gamma) * w for w in new_weights]
+                del new_comps[index_v_t]
+                # NOTE: recompute locs and diags after dropping v_t
+                drop_locs = [c['loc'] for c in new_comps]
+                drop_diags = [c['scale_diag'] for c in new_comps]
+                qt_new = Mixture(
+                    cat=Categorical(probs=tf.convert_to_tensor(new_weights)),
+                    components=[
+                        MultivariateNormalDiag(loc=loc, scale_diag=diag)
+                        for loc, diag in zip(drop_locs, drop_diags)
+                    ])
+            else:
+                new_weights = [(1. + gamma) * w for w in new_weights]
+                new_weights[index_v_t] -= gamma
+                qt_new = Mixture(
+                    cat=Categorical(probs=tf.convert_to_tensor(new_weights)),
+                    components=[
+                        MultivariateNormalDiag(loc=loc, scale_diag=diag)
+                        for loc, diag in zip(new_locs, new_diags)
+                    ])
+
+        quad_bound_lhs = kl_divergence(qt_new, p, allow_nan_stats=False).eval()
+        logger.info('lt = %.5f, gamma = %.3f, f_(qt_new) = %.5f, '
+                    'linear extrapolated = %.5f' % (l_t, gamma, quad_bound_lhs,
+                                                    quad_bound_rhs))
+        if quad_bound_lhs <= quad_bound_rhs:
+            return {
+                'gamma': gamma,
+                'l_estimate': l_t,
+                'weights': new_weights,
+                'comps': new_comps,
+                'gap': gap,
+                'step_type': "adaptive_%s" % adaptive_step_type
+            }
+        pow_tau *= tau
+        i += 1
+        if i > FLAGS.adafw_MAXITER:
+            # adaptive loop failed, return fixed step size
+            gamma = 2. / (k + 2.)
+            comps.append({'loc': mu_s, 'scale_diag': cov_s})
+            weights = [(1. - gamma) * w for w in weights]
+            weights.append(gamma)
+            step_type = 'fixed'
+            return {
+                'gamma': 2. / (k + 2.),
+                'l_estimate': l_prev,
+                'weights': weights,
+                'comps': comps,
+                'gap': gap,
+                'step_type': "fixed_adaptive_MAXITER"
+            }
+
+
 def adaptive_fw(weights,
                 locs,
                 diags,
@@ -164,6 +313,9 @@ def adaptive_fw(weights,
         quad_bound_rhs = f_t  + d_1 + d_2
 
         # $w_{t + 1} = [(1 - \gamma)w_t, \gamma]$
+        # TODO(sauravshekhar): Handle the case of gamma = 1.0
+        # separately, weights might not get exactly 0 because
+        # of precision issues. 0 wt components should be removed
         new_weights = copy.copy(weights)
         new_weights = [(1. - gamma) * w for w in new_weights]
         new_weights.append(gamma)
@@ -178,8 +330,12 @@ def adaptive_fw(weights,
                     'linear extrapolated = %.5f' % (l_t, gamma, quad_bound_lhs,
                                                     quad_bound_rhs))
         if quad_bound_lhs <= quad_bound_rhs:
+            """
+            ...step into christmas...
+            """
             step_type = "adaptive"
             break
+        pow_tau *= tau
         i += 1
         if i > FLAGS.adafw_MAXITER:
             # estimate not good
@@ -187,7 +343,6 @@ def adaptive_fw(weights,
             l_t = l_prev
             step_type = "fixed_adaptive_MAXITER"
             break
-        pow_tau *= tau
 
     if return_gamma: return gamma
     return {

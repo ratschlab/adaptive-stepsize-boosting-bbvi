@@ -34,7 +34,8 @@ FLAGS = flags.FLAGS
 flags.DEFINE_integer('n_fw_iter', 100, '')
 flags.DEFINE_integer('LMO_iter', 1000, '')
 flags.DEFINE_enum(
-    'fw_variant', 'fixed', ['fixed', 'line_search', 'fc', 'adafw'],
+    'fw_variant', 'fixed',
+    ['fixed', 'line_search', 'fc', 'adafw', 'ada_afw', 'ada_pfw'],
     '[fixed (default), line_search, fc] The Frank-Wolfe variant to use.')
 flags.DEFINE_enum('iter0', 'vi', ['vi', 'random'],
                   '1st component a random distribution or from vi')
@@ -91,7 +92,8 @@ class FWOptimizer(object):
         logger.info("saving gamma values to, %s" % step_filename)
         open(step_filename, 'w').close()
 
-        if FLAGS.fw_variant == 'adafw':
+        # 'adafw', 'ada_afw', 'ada_pfw'
+        if FLAGS.fw_variant.startswith('ada'):
             lipschitz_filename = os.path.join(outdir, 'lipschitz.csv')
             open(lipschitz_filename, 'w').close()
 
@@ -154,6 +156,9 @@ class FWOptimizer(object):
                             }, fw_iterates=fw_iterates, fw_iter=t)
                         inference.run(n_iter=FLAGS.LMO_iter)
                     # s now contains solution to LMO
+                    """
+                    ..takes me one step closer to the edge...
+                    """
                     end_inference_time = time.time()
 
                     mu_s = s.loc.eval() # s.mean().eval()
@@ -163,9 +168,12 @@ class FWOptimizer(object):
 
                     # compute step size to update the next iterate
                     step_result = {}
+                    """
+                    Step by step, heart to heart, left right left...
+                    """
                     if t == 0:
                         gamma = 1.
-                        if FLAGS.fw_variant == 'adafw':
+                        if FLAGS.fw_variant.startswith('ada'):
                             lipschitz_estimate = opt.adafw_linit(s, p)
                     elif FLAGS.fw_variant == 'fixed':
                         gamma = 2. / (t + 2.)
@@ -191,13 +199,30 @@ class FWOptimizer(object):
                         end_adafw_time = time.time()
                         total_time += end_adafw_time - start_adafw_time
                         gamma = step_result['gamma']
+                    elif FLAGS.fw_variant == 'ada_afw':
+                        start_adaafw_time = time.time()
+                        step_result = opt.adaptive_afw(
+                            weights, comps, [c['loc'] for c in comps],
+                            [c['scale_diag'] for c in comps], qtx, mu_s, cov_s,
+                            s, p, t, lipschitz_estimate)
+                        end_adaafw_time = time.time()
+                        total_time += end_adaafw_time - start_adaafw_time
+                        gamma = step_result['gamma'] # just for logging
 
-                    comps.append({
-                        'loc': mu_s,
-                        'scale_diag': cov_s
-                    })
-                    weights = coreutils.update_weights(weights, gamma, t)
+                    # TODO(sauravshekhar): In more complex algorithms like
+                    # Away-Steps and fully corrective, it is not necessary
+                    # that a new component will always be added. So instead of
+                    # getting gamma, pass comps and weights to the step
+                    # size selection methods so they can change them
+                    if ((FLAGS.fw_variant == 'ada_afw'
+                         or FLAGS.fw_variant == 'ada_pfw') and t > 0):
+                        comps = step_result['comps']
+                        weights = step_result['weights']
+                    else:
+                        comps.append({'loc': mu_s, 'scale_diag': cov_s})
+                        weights = coreutils.update_weights(weights, gamma, t)
 
+                    # TODO: Move this to fw_step_size.py
                     if FLAGS.fw_variant == "fc":
                         q_latest = Mixture(
                             cat=Categorical(
@@ -234,7 +259,7 @@ class FWOptimizer(object):
                     logger.info("iter, %d, elbo, %.2f +/- %.2f" %
                                 (t, elbo_t[0], elbo_t[1]))
                     append_to_file(elbos_filename,
-                                   "%.f,%.f" % (elbo_t[0], elbo_t[1]))
+                                   "%f,%f" % (elbo_t[0], elbo_t[1]))
 
                     logger.info('iter %d, gamma %.4f' % (t, gamma))
                     append_to_file(step_filename, gamma)
@@ -248,7 +273,7 @@ class FWOptimizer(object):
                     logger.info("iter, %d, kl, %.2f" % (t, objective_t))
                     append_to_file(objective_filename, objective_t)
 
-                    if FLAGS.fw_variant == 'adafw':
+                    if FLAGS.fw_variant.startswith('ada'):
                         if t > 0:
                             lipschitz_estimate = step_result['l_estimate']
                             append_to_file(gap_filename, step_result['gap'])
