@@ -90,6 +90,116 @@ def adafw_linit(q_0, p):
     return L_init_estimate
 
 
+def adaptive_pfw(weights, comps, locs, diags, q_t, mu_s, cov_s, s_t, p,
+                 k, l_prev):
+    """
+    ...one step forward two steps back...
+    """
+    d_t_norm = divergence(s_t, q_t, metric=FLAGS.distance_metric).eval()
+    logger.info('distance norm is %.5f' % d_t_norm)
+
+    # Find v_t
+    qcomps = q_t.components
+    index_v_t, step_v_t = argmax_grad_dotp(p, q_t, qcomps,
+                                           FLAGS.n_monte_carlo_samples)
+    v_t = qcomps[index_v_t]
+
+    # Pairwise gap
+    sample_s = s_t.sample([FLAGS.n_monte_carlo_samples])
+    step_s = tf.reduce_mean(grad_kl(q_t, p, sample_s)).eval()
+    gap_pw = step_v_t - step_s
+    if gap_pw < 0: eprint("Pairwise gap is negative")
+
+    def default_fixed_step(fail_type='fixed'):
+        # adaptive failed, return to fixed
+        gamma = 2. / (k + 2.)
+        new_comps = copy.copy(comps)
+        new_comps.append({'loc': mu_s, 'scale_diag': cov_s})
+        new_weights = [(1. - gamma) * w for w in weights]
+        new_weights.append(gamma)
+        return {
+            'gamma': 2. / (k + 2.),
+            'l_estimate': l_prev,
+            'weights': new_weights,
+            'comps': new_comps,
+            'gap': gap_pw,
+            'step_type': fail_type
+        }
+
+    logger.info('Pairwise gap %.5f' % gap_pw)
+
+    # Set $q_{t+1}$'s params
+    new_locs = copy.copy(locs)
+    new_diags = copy.copy(diags)
+    new_locs.append(mu_s)
+    new_diags.append(cov_s)
+    gap = gap_pw
+    if gap <= 0:
+        return default_fixed_step()
+    gamma_max = weights[index_v_t]
+    step_type = 'adaptive'
+
+    tau = FLAGS.exp_adafw
+    eta = FLAGS.damping_adafw
+    pow_tau = 1.0
+    i, l_t = 0, l_prev
+    f_t =  kl_divergence(q_t, p, allow_nan_stats=False).eval()
+    drop_step = False
+    debug('f(q_t) = %.5f' % (f_t))
+    while True:
+        # compute $L_t$ and $\gamma_t$
+        l_t = pow_tau * eta * l_prev
+        gamma = min(gap / (l_t * d_t_norm), gamma_max)
+
+        d_1 = - gamma * gap
+        d_2 = gamma * gamma * l_t * d_t_norm / 2.
+        debug('linear d1 = %.5f, quad d2 = %.5f' % (d_1, d_2))
+        quad_bound_rhs = f_t  + d_1 + d_2
+
+        # construct $q_{t + 1}$
+        new_weights = copy.copy(weights)
+        new_weights.append(gamma)
+        if gamma == gamma_max:
+            # hardcoding to 0 for precision issues
+            new_weights[index_v_t] = 0
+            drop_step = True
+        else:
+            new_weights[index_v_t] -= gamma
+            drop_step = False
+
+        qt_new = Mixture(
+            cat=Categorical(probs=tf.convert_to_tensor(new_weights)),
+            components=[
+                MultivariateNormalDiag(loc=loc, scale_diag=diag)
+                for loc, diag in zip(new_locs, new_diags)
+            ])
+
+        quad_bound_lhs = kl_divergence(qt_new, p, allow_nan_stats=False).eval()
+        logger.info('lt = %.5f, gamma = %.3f, f_(qt_new) = %.5f, '
+                    'linear extrapolated = %.5f' % (l_t, gamma, quad_bound_lhs,
+                                                    quad_bound_rhs))
+        if quad_bound_lhs <= quad_bound_rhs:
+            new_comps = copy.copy(comps)
+            new_comps.append({'loc': mu_s, 'scale_diag': cov_s})
+            if drop_step:
+                del new_comps[index_v_t]
+                del new_weights[index_v_t]
+                logger.info("...drop step")
+                step_type += '_drop'
+            return {
+                'gamma': gamma,
+                'l_estimate': l_t,
+                'weights': new_weights,
+                'comps': new_comps,
+                'gap': gap,
+                'step_type': step_type
+            }
+        pow_tau *= tau
+        i += 1
+        if i > FLAGS.adafw_MAXITER:
+            return default_fixed_step("fixed_adaptive_MAXITER")
+
+
 def adaptive_afw(weights, comps, locs, diags, q_t, mu_s, cov_s, s_t, p,
                  k, l_prev):
     """
@@ -224,15 +334,16 @@ def adaptive_afw(weights, comps, locs, diags, q_t, mu_s, cov_s, s_t, p,
         if i > FLAGS.adafw_MAXITER:
             # adaptive loop failed, return fixed step size
             gamma = 2. / (k + 2.)
-            comps.append({'loc': mu_s, 'scale_diag': cov_s})
-            weights = [(1. - gamma) * w for w in weights]
-            weights.append(gamma)
+            new_comps = copy.copy(comps)
+            new_comps.append({'loc': mu_s, 'scale_diag': cov_s})
+            new_weights = [(1. - gamma) * w for w in weights]
+            new_weights.append(gamma)
             step_type = 'fixed'
             return {
                 'gamma': 2. / (k + 2.),
                 'l_estimate': l_prev,
-                'weights': weights,
-                'comps': comps,
+                'weights': new_weights,
+                'comps': new_comps,
                 'gap': gap,
                 'step_type': "fixed_adaptive_MAXITER"
             }

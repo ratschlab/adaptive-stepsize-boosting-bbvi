@@ -208,6 +208,15 @@ class FWOptimizer(object):
                         end_adaafw_time = time.time()
                         total_time += end_adaafw_time - start_adaafw_time
                         gamma = step_result['gamma'] # just for logging
+                    elif FLAGS.fw_variant == 'ada_pfw':
+                        start_adapfw_time = time.time()
+                        step_result = opt.adaptive_pfw(
+                            weights, comps, [c['loc'] for c in comps],
+                            [c['scale_diag'] for c in comps], qtx, mu_s, cov_s,
+                            s, p, t, lipschitz_estimate)
+                        end_adapfw_time = time.time()
+                        total_time += end_adapfw_time - start_adapfw_time
+                        gamma = step_result['gamma'] # just for logging
 
                     # TODO(sauravshekhar): In more complex algorithms like
                     # Away-Steps and fully corrective, it is not necessary
