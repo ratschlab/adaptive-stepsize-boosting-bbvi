@@ -39,12 +39,31 @@ flags.DEFINE_list('elbos_files', [], '')
 flags.DEFINE_list('kl_files', [], '')
 flags.DEFINE_list('relbos_files', [], '')
 flags.DEFINE_list('times_files', [], '')
+flags.DEFINE_float('smoothingWt', 0., 'smoothness for the plot')
+
+def resmoothDataset(x):
+    """Apply linear filter
+    """
+    # From tensorboard:
+    # Explanation:
+    # https://github.com/tensorflow/tensorboard/blob/f801ebf1f9fbfe2baee1ddd65714d0bccc640fb1/tensorboard/plugins/scalar/vz_line_chart/vz-line-chart.ts#L55
+    # Implementation:
+    # https://github.com/tensorflow/tensorboard/blob/f801ebf1f9fbfe2baee1ddd65714d0bccc640fb1/tensorboard/plugins/scalar/vz_line_chart/vz-line-chart.ts#L704
+    last = x[0]
+    x_smoothed = []
+    for e in x:
+        s = last * FLAGS.smoothingWt + (1 - FLAGS.smoothingWt) * e
+        x_smoothed.append(s)
+        last = s
+    return x_smoothed
+
 
 def plot_elbos(ax):
     ax.set_yscale("symlog")
     for i, fname in enumerate(FLAGS.elbos_files):
         with open(fname, 'r') as f:
             elbos = [float(e.split(',')[0]) for e in f.readlines()]
+            elbos = resmoothDataset(elbos)
         ax.plot(elbos, label=FLAGS.labels[i])
         #plt.semilogy(elbos, label=FLAGS.labels[i])
     plt.ylabel('elbo')
@@ -66,6 +85,7 @@ def plot_kl(ax):
     for i, fname in enumerate(FLAGS.kl_files):
         with open(fname, 'r') as f:
             kl = list(map(float, f.readlines()))
+            kl = resmoothDataset(kl)
         ax.plot(kl, label=FLAGS.labels[i])
     plt.ylabel('kl')
     #plt.legend(loc='lower right')
