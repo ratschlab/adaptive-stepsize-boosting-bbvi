@@ -27,20 +27,49 @@ def softmax(v):
     return np.log(1 + np.exp(v))
 
 
-def elbo(q, p, n_samples=1000):
-    samples = q.sample(n_samples)
-    elbo_samples = p.log_prob(samples) - q.log_prob(samples)
-    elbo_samples = elbo_samples.eval()
+def elbo(q, joint, n_samples=1000, return_std=True):
+    """Computes ELBO
+    
+    Args:
+        q: Probability distribution
+        joint: p(z, y | X)
+        n_samples: samples to compute
+        return_std: return standard deviation of ELBO
+    Returns:
+        mean, std of elbo if return_std is True, only ELBO ow
+    """
+    # TODO remove the return_std option
+    # it is only for the mm example and is not very relevant
+    samples = q.sample([n_samples])
+    q_log_prob = q.log_prob(samples)
+    p_log_prob = joint.log_prob(samples)
+    elbo_samples = p_log_prob - q_log_prob
+    avg, std = tf.nn.moments(elbo_samples, axes=[0])
+    if return_std:
+        return avg.eval(), std.eval()
+    return avg.eval()
 
-    avg = np.mean(elbo_samples)
-    std = np.std(elbo_samples)
-    return avg, std
+
+def grad_elbo(q, p_joint, theta):
+    u"""Gradient of -ELBO w.r.t q
+    
+    Since KL(q || p(z|x)) = <q, log q - log p(z|x)>
+    => ∇q(KL) = log q - log p(z|x)
+    Now, ELBO(q) = <q, log p(z, x) - log q>
+    => ∇q(-ELBO) = log q - log p(z, x)
+
+    So, as gradient of ELBO only replaces the posterior by joint
+    in gradient of KL term
+    """
+    return grad_kl(q, p_joint, theta)
+
 
 def argmax_grad_dotp(p, q, candidates, n_samples=1000):
     u"""Find the candidate most aligned with ascent of objective function.
 
-    (Or most unaligned with descent direction -∇f)
-    Objective function here is KL(q||p). Ascent direction is ∇f
+    (Or most unaligned with descent direction -∇f) Ascent direction is ∇f
+    Objective function here is KL(q||p) where p is the target distribution.
+    Objective function -ELBO(q) also works if p is joint p(z, q)
     
     Args:
         p, q, candidates
@@ -50,6 +79,7 @@ def argmax_grad_dotp(p, q, candidates, n_samples=1000):
     max_i, max_step = None, None
     for i, s in enumerate(candidates):
         sample_s = s.sample([n_samples])
+        # NOTE: grad_kl will work for both KL and ELBO
         step_s = tf.reduce_mean(grad_kl(q, p, sample_s)).eval()
         if i == 0 or max_step < step_s:
             max_step = step_s

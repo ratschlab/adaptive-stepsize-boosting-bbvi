@@ -1,15 +1,20 @@
 """Utilities for relbo and optimization."""
-import sys
 import logging
+import math
 import numpy as np
 import tensorflow as tf
 from tensorflow.contrib.distributions import kl_divergence
 from edward.models import (Categorical, Dirichlet, Empirical, InverseGamma,
                            MultivariateNormalDiag, Normal, ParamMixture,
-                           Mixture)
+                           Mixture, Laplace, VectorLaplaceDiag)
 import edward as ed
 from colorama import Fore
 from colorama import Style
+
+import os, sys
+sys.path.append(os.path.join(os.path.dirname(__file__), "..", ".."))
+from boosting_bbvi.core.mvn import MVNormal
+from boosting_bbvi.core.lpl import MVLaplace
 
 def eprint(*args, **kwargs):
     print(Fore.RED, *args, Style.RESET_ALL, file=sys.stderr, **kwargs)
@@ -55,40 +60,108 @@ def update_weights(weights, gamma, iter):
 
     return weights
 
+def get_mixture(weights, components):
+    """Build a mixture model with given weights and components.
+    
+    Args:
+        weights: list or np.array
+        components: list ed.distribution
+    Returns:
+        constructed mixture
+    """
+    assert len(weights) == len(
+        components), 'Weights size %d not same as components size %d' % (
+            len(weights), len(components))
+    assert math.isclose(
+        1., sum(weights), rel_tol=1e-5), "Weights not normalized"
 
-def construct_multivariatenormaldiag(dims, iter, name='', sample_shape=500):
-    loc = tf.get_variable(
-        name + "_loc%d" % iter, initializer=tf.random_normal(dims))
-    scale = tf.nn.softplus(
-        tf.get_variable(
-            name + "_scale%d" % iter, initializer=tf.random_normal(dims)))
-    mvn = MultivariateNormalDiag(
-        loc=loc, scale_diag=scale, sample_shape=sample_shape)
-    return mvn
+    if len(weights) == 1: return components[0] # not a mixture
+    return Mixture(
+        cat=Categorical(probs=tf.convert_to_tensor(weights)),
+        components=components)
+
+
+def construct_multivariatenormaldiag(dims, iter, name=''):
+    return construct_base('mvn', dims, iter, name, multivariate=True)
 
 
 def construct_normal(dims, iter, name=''):
+    return construct_base('normal', dims, iter, name)
+
+
+def construct_laplace(dims, iter, name=''):
+    return construct_base('laplace', dims, iter, name)
+
+
+def base_loc_scale(dist_name, loc, scale, **kwargs):
+    """Get base distribution from location-scale family.
+    
+    Args:
+        dist_name: name of the distribution
+        loc: mean
+        scale: variance scale
+        kwargs: other information for constructing the distribution
+    Returns:
+        Instance of the distribution
+    """
+    base_dict = {
+        'normal': Normal,
+        'laplace': Laplace,
+        'mvnormal': MVNormal,
+        'mvlaplace': MVLaplace,
+        'mvn': MultivariateNormalDiag,
+        'mvl': VectorLaplaceDiag
+    }
+    Base = base_dict[dist_name]
+    if dist_name in ['mvnormal', 'mvlaplace']:
+        eprint('MVNormal and MVLaplace implementations are not correct')
+        raise NotImplementedError
+
+    # Handle MultivariateNormalDiag
+    is_vector = kwargs.pop('multivariate', False)
+    if is_vector:
+        return Base(loc=loc, scale_diag=scale)
+
+    return Base(loc=loc, scale=scale)
+
+def construct_base(dist_name, dims, iter, name='', **kwargs):
+    """Construct base distribution for Variational Approximation.
+    
+    Args:
+        dist_name: name of the distribution
+        dims: dimensionality of the distribution
+        iter: iteration of the algorithm (for naming)
+        name: name of variable
+        kwargs: other information for constructing the distribution
+    Returns:
+        An instance of the distribution with Gaussian initialization
+        for mean and variances"""
+    # TODO(sauravshekhar) check if np.random.normal() matters and remove o/w
     loc = tf.get_variable(
         name + "_loc%d" % iter,
         initializer=tf.random_normal(dims) + np.random.normal())
-    scale = tf.get_variable(
-        name + "_scale%d" % iter, initializer=tf.random_normal(dims))
-    return Normal(loc=loc, scale=tf.nn.softplus(scale))
+    scale = tf.nn.softplus(
+        tf.get_variable(
+            name + "_scale%d" % iter,
+            initializer=tf.random_normal(dims) + np.random.normal()))
+    return base_loc_scale(dist_name, loc, scale, **kwargs)
 
 
 def compute_relbo(s, qt, p, l):
-    # assumes being called under a tensorflow session
+    # Assumes being called under a tensorflow session
     s_samples = s.sample(500)
     relbo = tf.reduce_sum(p.log_prob(s_samples)) \
             - l * tf.reduce_sum(s.log_prob(s_samples)) \
             - tf.reduce_sum(qt.log_prob(s_samples))
     return relbo.eval()
 
+
 def append_to_file(path, value):
     """Append value to the file at path."""
     with open(path, 'a') as f:
         f.write(str(value))
         f.write('\n')
+
 
 def block_diagonal(matrices, dtype=tf.float32):
     r"""Constructs block-diagonal matrices from a list of batched 2D tensors.
