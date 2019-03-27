@@ -1,14 +1,10 @@
 """Frank-Wolfe Optimizer for Boosted Black Box Variational Inference.
 
+Indented to be used with the toy mixture model experiment.
+
 Logs  elbos, relbos, objectives, times, iteration wide info and other
 relevant metrics.
 """
-# NOTE: Currently the code assumed the target distribution is given and the
-# objective function is kl divergence.
-# TODO: For using on real world datasets, joint model p(z, x) will be given
-# and target will be p(z | x). Optimization objective would be ELBO (with
-# corresponding gradient) and not KL divergence
-
 import os
 import sys
 import time

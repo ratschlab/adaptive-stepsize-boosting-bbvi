@@ -60,7 +60,9 @@ def main(_):
                                                                        D)
 
     # Solution components
-    weights, q_components = [], []
+    weights, q_params = [], []
+    # L-continous gradient estimate
+    lipschitz_estimate = None
 
     # Metrics to log
     times_filename = os.path.join(outdir, 'times.csv')
@@ -90,6 +92,14 @@ def main(_):
     # (bin_ac_train, bin_ac_test)
     bin_ac_filename = os.path.join(outdir, 'bin_ac.csv')
     open(bin_ac_filename, 'w').close()
+
+    # 'adafw', 'ada_afw', 'ada_pfw'
+    if FLAGS.fw_variant.startswith('ada'):
+        lipschitz_filename = os.path.join(outdir, 'lipschitz.csv')
+        open(lipschitz_filename, 'w').close()
+
+        iter_info_filename = os.path.join(outdir, 'iter_info.txt')
+        open(iter_info_filename, 'w').close()
 
     for t in range(FLAGS.n_fw_iter):
         g = tf.Graph()
@@ -138,7 +148,7 @@ def main(_):
                             FLAGS.base_dist,
                             c['loc'],
                             c['scale'],
-                            multivariate=True) for c in q_components
+                            multivariate=True) for c in q_params
                     ]
                     qtw_prev = coreutils.get_mixture(weights, prev_components)
                     fw_iterates = {w: qtw_prev}
@@ -165,19 +175,35 @@ def main(_):
 
                 loc_s = s.mean().eval()
                 scale_s = s.stddev().eval()
+                if t > 0:
+                    eprint('KL divergence is')
+                    debug(kl_divergence(s, qtw_prev).eval())
 
                 # Evaluate the next step
                 step_result = {}
                 if t == 0:
                     # Initialization, q_0
-                    q_components.append({'loc': loc_s, 'scale': scale_s})
+                    q_params.append({'loc': loc_s, 'scale': scale_s})
                     weights.append(1.)
+                    if FLAGS.fw_variant.startswith('ada'):
+                        lipschitz_estimate = opt.adafw_linit(s, p_joint)
+                    step_type = 'init'
                 elif FLAGS.fw_variant == 'fixed':
                     start_step_time = time.time()
-                    step_result = opt.fixed(weights, q_components, qtw_prev,
+                    step_result = opt.fixed(weights, q_params, qtw_prev,
                                             loc_s, scale_s, s, p_joint, t)
                     end_step_time = time.time()
                     total_time += float(end_step_time - start_step_time)
+                elif FLAGS.fw_variant == 'adafw':
+                    start_step_time = time.time()
+                    step_result = opt.adaptive_fw(weights, q_params, qtw_prev,
+                                                  loc_s, scale_s, s, p_joint,
+                                                  t, lipschitz_estimate)
+                    end_step_time = time.time()
+                    total_time += float(end_step_time - start_step_time)
+                    step_type = step_result['step_type']
+                    if step_type == 'adaptive':
+                        lipschitz_estimate = step_result['l_estimate']
                 else:
                     raise NotImplementedError(
                         'Step size variant %s not implemented' %
@@ -187,7 +213,7 @@ def main(_):
                     gamma = 1.
                     qtw_new = s
                 else:
-                    q_components = step_result['comps']
+                    q_params = step_result['params']
                     weights = step_result['weights']
                     gamma = step_result['gamma']
                     new_components = [
@@ -195,12 +221,11 @@ def main(_):
                             FLAGS.base_dist,
                             c['loc'],
                             c['scale'],
-                            multivariate=True) for c in q_components
+                            multivariate=True) for c in q_params
                     ]
                     qtw_new = coreutils.get_mixture(weights, new_components)
 
                 # Log metrics for current iteration
-                # TODO log gap too
                 logger.info('total time %f' % total_time)
                 append_to_file(times_filename, total_time)
 
@@ -208,9 +233,19 @@ def main(_):
                 logger.info("iter, %d, elbo, %.2f " % (t, elbo_t))
                 append_to_file(elbos_filename, "%f" % (elbo_t))
 
-
                 logger.info('iter %d, gamma %.4f' % (t, gamma))
                 append_to_file(step_filename, gamma)
+
+                if t > 0:
+                    gap_t = step_result['gap']
+                    logger.info('iter %d, gap %.4f' % (t, gap_t))
+                    append_to_file(gap_filename, gap_t)
+
+                if FLAGS.fw_variant.startswith('ada'):
+                    append_to_file(lipschitz_filename, lipschitz_estimate)
+                    append_to_file(iter_info_filename, step_type)
+                    logger.info('lt = %.5f, iter_type = %s' %
+                                (lipschitz_estimate, step_type))
 
                 # get weight samples to evaluate expectations
                 w_samples = qtw_new.sample([n_test_samples]).eval()
@@ -263,6 +298,8 @@ def main(_):
                     'binary_accuracy', data={
                         y_post_test: ytest,
                     })
+                append_to_file(bin_ac_filename,
+                               "%f,%f" % (bin_ac_train, bin_ac_test))
                 logger.info("edward binary accuracy train ll %.2f test ll %.2f"
                             % (bin_ac_train, bin_ac_test))
 
