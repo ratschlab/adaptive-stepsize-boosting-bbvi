@@ -13,8 +13,8 @@ from colorama import Style
 
 import os, sys
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", ".."))
-from boosting_bbvi.core.mvn import MVNormal
-from boosting_bbvi.core.lpl import MVLaplace
+from boosting_bbvi.core.mvn import mvn
+from boosting_bbvi.core.lpl import lpl
 
 def eprint(*args, **kwargs):
     print(Fore.RED, *args, Style.RESET_ALL, file=sys.stderr, **kwargs)
@@ -107,15 +107,15 @@ def base_loc_scale(dist_name, loc, scale, **kwargs):
     base_dict = {
         'normal': Normal,
         'laplace': Laplace,
-        'mvnormal': MVNormal,
-        'mvlaplace': MVLaplace,
-        'mvn': MultivariateNormalDiag,
-        'mvl': VectorLaplaceDiag
+        'mvnormal': MultivariateNormalDiag,
+        'mvlaplace': VectorLaplaceDiag,
+        'mvn': mvn,
+        'mvl': lpl,
     }
-    Base = base_dict[dist_name]
-    if dist_name in ['mvnormal', 'mvlaplace']:
-        eprint('MVNormal and MVLaplace implementations are not correct')
+    if dist_name in ['mvn', 'mvl']:
+        eprint('mvn and lpl dont have multivariate log_prob()')
         raise NotImplementedError
+    Base = base_dict[dist_name]
 
     # Handle MultivariateNormalDiag
     is_vector = kwargs.pop('multivariate', False)

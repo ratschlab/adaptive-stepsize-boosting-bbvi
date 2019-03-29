@@ -175,9 +175,6 @@ def main(_):
 
                 loc_s = s.mean().eval()
                 scale_s = s.stddev().eval()
-                if t > 0:
-                    eprint('KL divergence is')
-                    debug(kl_divergence(s, qtw_prev).eval())
 
                 # Evaluate the next step
                 step_result = {}
