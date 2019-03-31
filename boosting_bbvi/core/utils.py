@@ -82,7 +82,7 @@ def get_mixture(weights, components):
 
 
 def construct_multivariatenormaldiag(dims, iter, name=''):
-    return construct_base('mvn', dims, iter, name, multivariate=True)
+    return construct_base('mvnormal', dims, iter, name, multivariate=True)
 
 
 def construct_normal(dims, iter, name=''):
@@ -112,7 +112,7 @@ def base_loc_scale(dist_name, loc, scale, **kwargs):
         'mvn': mvn,
         'mvl': lpl,
     }
-    if dist_name in ['mvn', 'mvl']:
+    if dist_name in ['mvl']:
         eprint('mvn and lpl dont have multivariate log_prob()')
         raise NotImplementedError
     Base = base_dict[dist_name]

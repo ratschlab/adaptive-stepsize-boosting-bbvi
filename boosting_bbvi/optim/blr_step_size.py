@@ -124,6 +124,9 @@ def adaptive_fw(weights,
         and step information
     """
 
+    # FIXME
+    is_vector = FLAGS.base_dist in ['mvnormal', 'mvlaplace']
+
     d_t_norm = divergence(s_t, q_t, metric=FLAGS.distance_metric).eval()
     logger.info('distance norm is %.5f' % d_t_norm)
 
@@ -171,7 +174,7 @@ def adaptive_fw(weights,
             new_params.append({'loc': mu_s, 'scale': cov_s})
             new_components = [
                 coreutils.base_loc_scale(
-                    FLAGS.base_dist, c['loc'], c['scale'], multivariate=True)
+                    FLAGS.base_dist, c['loc'], c['scale'], multivariate=is_vector)
                 for loc, diag in zip(new_locs, new_diags)
             ]
         else:

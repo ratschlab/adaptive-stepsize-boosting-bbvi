@@ -53,6 +53,8 @@ def main(_):
     if '~' in outdir: outdir = os.path.expanduser(outdir)
     os.makedirs(outdir, exist_ok=True)
 
+    is_vector = FLAGS.base_dist in ['mvnormal', 'mvlaplace']
+
     ((Xtrain, ytrain), (Xtest, ytest)) = blr_utils.get_data()
     N,D = Xtrain.shape
     N_test,D_test = Xtest.shape
@@ -148,17 +150,19 @@ def main(_):
                             FLAGS.base_dist,
                             c['loc'],
                             c['scale'],
-                            multivariate=True) for c in q_params
+                            multivariate=is_vector) for c in q_params
                     ]
                     qtw_prev = coreutils.get_mixture(weights, prev_components)
                     fw_iterates = {w: qtw_prev}
 
                 # s is the solution to LMO, random initialization
                 s = coreutils.construct_base(
-                    FLAGS.base_dist, [D], t, 's', multivariate=True)
+                    FLAGS.base_dist, [D], t, 's', multivariate=is_vector)
 
                 sess.run(tf.global_variables_initializer())
 
+                debug('before LMO %d mean' % t)
+                debug(s.mean()[:10].eval())
                 total_time = 0.
                 inference_time_start = time.time()
                 # Run relbo to solve LMO problem
@@ -175,6 +179,8 @@ def main(_):
 
                 loc_s = s.mean().eval()
                 scale_s = s.stddev().eval()
+                debug('after LMO %d mean' % t)
+                debug(loc_s[:10])
 
                 # Evaluate the next step
                 step_result = {}
@@ -218,7 +224,7 @@ def main(_):
                             FLAGS.base_dist,
                             c['loc'],
                             c['scale'],
-                            multivariate=True) for c in q_params
+                            multivariate=is_vector) for c in q_params
                     ]
                     qtw_new = coreutils.get_mixture(weights, new_components)
 
