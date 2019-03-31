@@ -48,6 +48,7 @@ np.random.seed(FLAGS.seed)
 
 
 def main(_):
+    ed.set_seed(FLAGS.seed)
     # setting up output directory
     outdir = FLAGS.outdir
     if '~' in outdir: outdir = os.path.expanduser(outdir)
@@ -60,6 +61,7 @@ def main(_):
     N_test,D_test = Xtest.shape
     assert D_test == D, 'Test dimension %d different than train %d' % (D_test,
                                                                        D)
+    logger.info('D = %d, Ntrain = %d, Ntest = %d' % (D, N, N_test))
 
     # Solution components
     weights, q_params = [], []
@@ -114,11 +116,8 @@ def main(_):
                 w = Normal(
                     loc=tf.zeros(D, tf.float32), scale=tf.ones(D, tf.float32))
 
-                X_train = tf.convert_to_tensor(Xtrain, tf.float32)
-                py = Bernoulli(logits=ed.dot(X_train, w))
-
-                X_test = tf.convert_to_tensor(Xtest, tf.float32)
-                py_test = Bernoulli(logits=ed.dot(X_test, w))
+                X = tf.placeholder(tf.float32, [None, D])
+                y = Bernoulli(logits=ed.dot(X, w))
 
                 p_joint = blr_utils.Joint(Xtrain, ytrain, sess,
                                           FLAGS.n_monte_carlo_samples, logger)
@@ -126,16 +125,16 @@ def main(_):
                 # vectorized Model evaluations
                 n_test_samples = 100
                 W = tf.placeholder(tf.float32, [n_test_samples, D])
-                X = tf.placeholder(tf.float32, [None, D]) # (N, D)
-                y = tf.placeholder(tf.float32, [None]) # N -> (N, n_test)
-                y_matrix = tf.tile(tf.expand_dims(y, 1), (1, n_test_samples))
+                y_data = tf.placeholder(tf.float32, [None]) # N -> (N, n_test)
+                y_data_matrix = tf.tile(
+                    tf.expand_dims(y_data, 1), (1, n_test_samples))
                 pred_logits = tf.matmul(X, tf.transpose(W)) # (N, n_test)
                 # FIXME(sauravshekhar) first sigmoid then mean
                 # or first mean then sigmoid, prev implementation is
                 # mean logit -> sigmoid
                 ypred = tf.sigmoid(tf.reduce_mean(pred_logits, axis=1))
                 pY = Bernoulli(logits=pred_logits) # (N, n_test)
-                log_likelihoods = pY.log_prob(y_matrix) # (N, n_test)
+                log_likelihoods = pY.log_prob(y_data_matrix) # (N, n_test)
                 log_likelihood_expectation = tf.reduce_mean(
                     log_likelihoods, axis=1) # (N, )
                 ll_mean, ll_std = tf.nn.moments(
@@ -161,8 +160,6 @@ def main(_):
 
                 sess.run(tf.global_variables_initializer())
 
-                debug('before LMO %d mean' % t)
-                debug(s.mean()[:10].eval())
                 total_time = 0.
                 inference_time_start = time.time()
                 # Run relbo to solve LMO problem
@@ -179,8 +176,6 @@ def main(_):
 
                 loc_s = s.mean().eval()
                 scale_s = s.stddev().eval()
-                debug('after LMO %d mean' % t)
-                debug(loc_s[:10])
 
                 # Evaluate the next step
                 step_result = {}
@@ -256,7 +251,7 @@ def main(_):
                                                        feed_dict={
                                                            W: w_samples,
                                                            X: Xtrain,
-                                                           y: ytrain
+                                                           y_data: ytrain
                                                        })
                 logger.info("iter, %d, train ll, %.2f +/- %.2f" %
                             (t, ll_train_mean, ll_train_std))
@@ -268,7 +263,7 @@ def main(_):
                     feed_dict={
                         W: w_samples,
                         X: Xtest,
-                        y: ytest
+                        y_data: ytest
                     })
                 logger.info("iter, %d, test ll, %.2f +/- %.2f" %
                             (t, ll_test_mean, ll_test_std))
@@ -279,33 +274,43 @@ def main(_):
                 logger.info("iter %d, roc %.4f" % (t, roc_score))
                 append_to_file(rocs_filename, roc_score)
 
-                y_post = ed.copy(py, {w: qtw_new})
-                y_post_test = ed.copy(py_test, {w: qtw_new})
+                y_post = ed.copy(y, {w: qtw_new})
+                # eq. to y = Bernoulli(logits=ed.dot(X, qtw_new))
 
                 ed_train_ll = ed.evaluate(
                     'log_likelihood', data={
+                        X: Xtrain,
                         y_post: ytrain,
                     })
                 ed_test_ll = ed.evaluate(
                     'log_likelihood', data={
-                        y_post_test: ytest,
+                        X: Xtest,
+                        y_post: ytest,
                     })
                 logger.info("edward train ll %.2f test ll %.2f" %
                             (ed_train_ll, ed_test_ll))
 
                 bin_ac_train = ed.evaluate(
                     'binary_accuracy', data={
+                        X: Xtrain,
                         y_post: ytrain,
                     })
                 bin_ac_test = ed.evaluate(
                     'binary_accuracy', data={
-                        y_post_test: ytest,
+                        X: Xtest,
+                        y_post: ytest,
                     })
                 append_to_file(bin_ac_filename,
                                "%f,%f" % (bin_ac_train, bin_ac_test))
                 logger.info("edward binary accuracy train ll %.2f test ll %.2f"
                             % (bin_ac_train, bin_ac_test))
 
+                mse_test = ed.evaluate(
+                    'mean_squared_error', data={
+                        X: Xtest,
+                        y_post: ytest,
+                    })
+                logger.info("edward mse test ll %.2f" % (mse_test))
         tf.reset_default_graph()
 
 
