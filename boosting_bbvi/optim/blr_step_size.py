@@ -174,7 +174,10 @@ def adaptive_fw(weights,
             new_params.append({'loc': mu_s, 'scale': cov_s})
             new_components = [
                 coreutils.base_loc_scale(
-                    FLAGS.base_dist, c['loc'], c['scale'], multivariate=is_vector)
+                    FLAGS.base_dist,
+                    c['loc'],
+                    c['scale'],
+                    multivariate=is_vector)
                 for loc, diag in zip(new_locs, new_diags)
             ]
         else:
@@ -203,4 +206,3 @@ def adaptive_fw(weights,
     # Maximum iterations reached
     logger.warning("Maximum iterations of Adaptive reached")
     return fixed(weights, params, q_t, mu_s, cov_s, s_t, p, k, gap)
-

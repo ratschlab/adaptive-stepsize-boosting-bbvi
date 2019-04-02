@@ -173,14 +173,19 @@ def main(_):
                 total_time = 0.
                 inference_time_start = time.time()
                 # Run relbo to solve LMO problem
-                inference = relbo.KLqp({w: s},
-                                       fw_iterates=fw_iterates,
-                                       data={
-                                           X: Xtrain,
-                                           y: ytrain
-                                       },
-                                       fw_iter=t)
-                inference.run(n_iter=FLAGS.LMO_iter)
+                # If the first atom is being selected through running LMO
+                # it is equivalent to running vi on a uniform prior
+                # Since uniform is not in our variational family try 
+                # only random element (without LMO inference) as initial iterate
+                if FLAGS.iter0 == 'vi' or t > 0:
+                    inference = relbo.KLqp({w: s},
+                                        fw_iterates=fw_iterates,
+                                        data={
+                                            X: Xtrain,
+                                            y: ytrain
+                                        },
+                                        fw_iter=t)
+                    inference.run(n_iter=FLAGS.LMO_iter)
                 inference_time_end = time.time()
                 total_time += float(inference_time_end - inference_time_start)
 
