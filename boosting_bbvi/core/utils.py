@@ -112,9 +112,6 @@ def base_loc_scale(dist_name, loc, scale, **kwargs):
         'mvn': mvn,
         'mvl': lpl,
     }
-    if dist_name in ['mvl']:
-        eprint('mvn and lpl dont have multivariate log_prob()')
-        raise NotImplementedError
     Base = base_dict[dist_name]
 
     # Handle MultivariateNormalDiag

@@ -2,6 +2,16 @@
 
 Example usage:
 
+python scripts/bayesian_logistic_regression.py \
+        --exp chem \
+        --fw_variant fixed \
+        --base_dist mvl \
+        --outdir /path/blr/fixed \
+        --datapath /path/data/chem \
+        --n_fw_iter 30 \
+        --LMO_iter 1000 \
+        --n_monte_carlo_samples 1000
+
 """
 
 import os
