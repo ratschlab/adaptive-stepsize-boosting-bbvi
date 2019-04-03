@@ -37,6 +37,8 @@ flags.DEFINE_enum(
     'distance_metric', 'dotproduct', ['dotproduct', 'kl', 'constant'],
     'Metric to use for distance norm between probability distrbutions')
 
+MIN_GAMMA = 0.01
+
 def fixed(weights, params, q_t, mu_s, cov_s, s_t, p, k, gap=None):
     """Fixed step size.
     
@@ -128,7 +130,7 @@ def adaptive_fw(weights,
     is_vector = FLAGS.base_dist in ['mvnormal', 'mvlaplace']
 
     d_t_norm = divergence(s_t, q_t, metric=FLAGS.distance_metric).eval()
-    logger.info('distance norm is %.5f' % d_t_norm)
+    logger.info('\ndistance norm is %.3e' % d_t_norm)
 
     N_samples = FLAGS.n_monte_carlo_samples
     # create and sample from $s_t, q_t$
@@ -136,9 +138,9 @@ def adaptive_fw(weights,
     sample_s = s_t.sample([N_samples])
     step_s = tf.reduce_mean(grad_elbo(q_t, p, sample_s)).eval()
     step_q = tf.reduce_mean(grad_elbo(q_t, p, sample_q)).eval()
-    debug('step_q = %f, step_s = %f' % (step_q, step_s))
+    debug('step_q = %.2e, step_s = %.2e' % (step_q, step_s))
     gap = step_q - step_s
-    logger.info('duality gap %.5f' % gap)
+    logger.info('duality gap %.3e' % gap)
     if gap < 0:
         logger.warning("Duality gap is negative returning fixed step")
         return fixed(weights, params, q_t, mu_s, cov_s, s_t, p, k, gap)
@@ -150,16 +152,17 @@ def adaptive_fw(weights,
     # replaces multiplicative eta with divisor eta
     pow_tau = 1.0
     i, l_t = 0, l_prev
-    f_t =  elbo(q_t, p, N_samples, return_std=False)
-    debug('f(q_t) = %.5f' % (f_t))
+    # Objective in this case is -ELBO
+    f_t = -elbo(q_t, p, N_samples, return_std=False)
+    debug('f(q_t) = %.3e' % (f_t))
     # return intial estimate if gap is -ve
-    while i <= FLAGS.adafw_MAXITER:
+    while gamma >= MIN_GAMMA:
         # compute $L_t$ and $\gamma_t$
         l_t = pow_tau * eta * l_prev
         gamma = min(gap / (l_t * d_t_norm), 1.0)
         d_1 = - gamma * gap
         d_2 = gamma * gamma * l_t * d_t_norm / 2.
-        debug('linear d1 = %.5f, quad d2 = %.5f' % (d_1, d_2))
+        debug('linear d1 = %.3e, quad d2 = %.3e' % (d_1, d_2))
         quad_bound_rhs = f_t + d_1 + d_2
 
         # $w_{t + 1} = [(1 - \gamma)w_t, \gamma]$
@@ -177,8 +180,7 @@ def adaptive_fw(weights,
                     FLAGS.base_dist,
                     c['loc'],
                     c['scale'],
-                    multivariate=is_vector)
-                for loc, diag in zip(new_locs, new_diags)
+                    multivariate=is_vector) for c in new_params
             ]
         else:
             new_weights = [1.]
@@ -186,9 +188,9 @@ def adaptive_fw(weights,
             new_components = [s_t]
 
         qt_new = coreutils.get_mixture(new_weights, new_components)
-        quad_bound_lhs = elbo(qt_new, p, N_samples, return_std=False)
-        logger.info('lt = %.5f, gamma = %.3f, f_(qt_new) = %.5f, '
-                    'linear extrapolated = %.5f' % (l_t, gamma, quad_bound_lhs,
+        quad_bound_lhs = -elbo(qt_new, p, N_samples, return_std=False)
+        logger.info('lt = %.3e, gamma = %.3f, f_(qt_new) = %.3e, '
+                    'linear extrapolated = %.3e' % (l_t, gamma, quad_bound_lhs,
                                                     quad_bound_rhs))
         if quad_bound_lhs <= quad_bound_rhs:
             # Adaptive loop succeeded
@@ -202,7 +204,6 @@ def adaptive_fw(weights,
             }
         pow_tau *= tau
         i += 1
-
-    # Maximum iterations reached
-    logger.warning("Maximum iterations of Adaptive reached")
+    # gamma below MIN_GAMMA
+    logger.warning("gamma below threshold value, returning fixed step")
     return fixed(weights, params, q_t, mu_s, cov_s, s_t, p, k, gap)
