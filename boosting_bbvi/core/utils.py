@@ -75,7 +75,6 @@ def get_mixture(weights, components):
     assert math.isclose(
         1., sum(weights), rel_tol=1e-5), "Weights not normalized"
 
-    if len(weights) == 1: return components[0] # not a mixture
     return Mixture(
         cat=Categorical(probs=tf.convert_to_tensor(weights)),
         components=components)

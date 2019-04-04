@@ -204,6 +204,97 @@ def adaptive_fw(weights,
             }
         pow_tau *= tau
         i += 1
+
+    # gamma below MIN_GAMMA
+    logger.warning("gamma below threshold value, returning fixed step")
+    return fixed(weights, params, q_t, mu_s, cov_s, s_t, p, k, gap)
+
+
+def adaptive_pfw(weights, params, q_t, mu_s, cov_s, s_t, p, k, l_prev):
+    """Adaptive pairwise variant"""
+
+    # FIXME
+    is_vector = FLAGS.base_dist in ['mvnormal', 'mvlaplace']
+
+    d_t_norm = divergence(s_t, q_t, metric=FLAGS.distance_metric).eval()
+    logger.info('\ndistance norm is %.3e' % d_t_norm)
+
+    # Find v_t
+    qcomps = q_t.components
+    index_v_t, step_v_t = argmax_grad_dotp(p, q_t, qcomps,
+                                           FLAGS.n_monte_carlo_samples)
+    v_t = qcomps[index_v_t]
+
+    # Pairwise gap
+    N_samples = FLAGS.n_monte_carlo_samples
+    sample_s = s_t.sample([N_samples])
+    step_s = tf.reduce_mean(grad_elbo(q_t, p, sample_s)).eval()
+    gap_pw = step_v_t - step_s
+    logger.info('Pairwise gap %.3e' % gap_pw)
+    if gap_pw <= 0:
+        logger.warning('Pairwise gap <= 0, returning fixed step')
+        return fixed(weights, params, q_t, mu_s, cov_s, s_t, p, k, gap)
+    gap = gap_pw
+
+    MAX_GAMMA = weights[index_v_t]
+
+    gamma = 2. / (k + 2.)
+    tau = FLAGS.exp_adafw
+    eta = FLAGS.damping_adafw
+    pow_tau = 1.0
+    i, l_t = 0, l_prev
+    f_t = -elbo(q_t, p, N_samples, return_std=False)
+    debug('f(q_t) = %.3e' % f_t)
+    is_drop_step = False
+    while gamma >= MIN_GAMMA:
+        # compute L_t and gamma_t
+        l_t = pow_tau * eta * l_prev
+        gamma = min(gap / (l_t * d_t_norm), MAX_GAMMA)
+
+        d_1 = -gamma * gap
+        d_2 = gamma * gamma * l_t * d_t_norm / 2.
+        debug('linear d1 = %.5f, quad d2 = %.5f' % (d_1, d_2))
+        quad_bound_rhs = f_t  + d_1 + d_2
+
+        # construct q_{t + 1}
+        # handle the case of gamma = MAX_GAMMA separately
+        new_weights = copy.copy(weights)
+        new_weights.append(gamma)
+        new_params = copy.copy(params)
+        new_params.append({'loc': mu_s, 'scale': cov_s})
+        if gamma != MAX_GAMMA:
+            new_weights[index_v_t] -= gamma
+            is_drop_step = False
+        else:
+            # hardcoding to 0
+            # TODO remove v_t from weights and params
+            new_weights[index_v_t] = 0.
+            is_drop_step = True
+
+        new_components = [
+            coreutils.base_loc_scale(
+                FLAGS.base_dist, c['loc'], c['scale'], multivariate=is_vector)
+            for c in new_params
+        ]
+
+        qt_new = coreutils.get_mixture(new_weights, new_components)
+        quad_bound_lhs = -elbo(qt_new, p, N_samples, return_std=False)
+        logger.info('lt = %.3e, gamma = %.3f, f_(qt_new) = %.3e, '
+                    'linear extrapolated = %.3e' % (l_t, gamma, quad_bound_lhs,
+                                                    quad_bound_rhs))
+        if quad_bound_lhs <= quad_bound_rhs:
+            # Adaptive loop succeeded
+            return {
+                'gamma': gamma,
+                'l_estimate': l_t,
+                'weights': new_weights,
+                'params': new_params,
+                'gap': gap,
+                'step_type': 'drop' if is_drop_step else 'adaptive'
+            }
+        pow_tau *= tau
+        i += 1
+
     # gamma below MIN_GAMMA
     logger.warning("gamma below threshold value, returning fixed step")
     return fixed(weights, params, q_t, mu_s, cov_s, s_t, p, k, gap)

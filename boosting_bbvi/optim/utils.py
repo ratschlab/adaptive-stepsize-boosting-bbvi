@@ -79,7 +79,7 @@ def argmax_grad_dotp(p, q, candidates, n_samples=1000):
     max_i, max_step = None, None
     for i, s in enumerate(candidates):
         sample_s = s.sample([n_samples])
-        # NOTE: grad_kl will work for both KL and ELBO
+        # NOTE: grad_kl will work for both KL and -ELBO
         step_s = tf.reduce_mean(grad_kl(q, p, sample_s)).eval()
         if i == 0 or max_step < step_s:
             max_step = step_s

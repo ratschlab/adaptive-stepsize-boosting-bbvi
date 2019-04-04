@@ -175,7 +175,7 @@ def main(_):
                 # Run relbo to solve LMO problem
                 # If the first atom is being selected through running LMO
                 # it is equivalent to running vi on a uniform prior
-                # Since uniform is not in our variational family try 
+                # Since uniform is not in our variational family try
                 # only random element (without LMO inference) as initial iterate
                 if FLAGS.iter0 == 'vi' or t > 0:
                     inference = relbo.KLqp({w: s},
@@ -217,6 +217,16 @@ def main(_):
                     step_type = step_result['step_type']
                     if step_type == 'adaptive':
                         lipschitz_estimate = step_result['l_estimate']
+                elif FLAGS.fw_variant == 'ada_pfw':
+                    start_step_time = time.time()
+                    step_result = opt.adaptive_pfw(weights, q_params, qtw_prev,
+                                                   loc_s, scale_s, s, p_joint,
+                                                   t, lipschitz_estimate)
+                    end_step_time = time.time()
+                    total_time += float(end_step_time - start_step_time)
+                    step_type = step_result['step_type']
+                    if step_type in ['adaptive', 'drop']:
+                        lipschitz_estimate = step_result['l_estimate']
                 else:
                     raise NotImplementedError(
                         'Step size variant %s not implemented' %
@@ -224,7 +234,7 @@ def main(_):
 
                 if t == 0:
                     gamma = 1.
-                    qtw_new = s
+                    new_components = [s]
                 else:
                     q_params = step_result['params']
                     weights = step_result['weights']
@@ -236,7 +246,7 @@ def main(_):
                             c['scale'],
                             multivariate=is_vector) for c in q_params
                     ]
-                    qtw_new = coreutils.get_mixture(weights, new_components)
+                qtw_new = coreutils.get_mixture(weights, new_components)
 
                 # Log metrics for current iteration
                 logger.info('total time %f' % total_time)
