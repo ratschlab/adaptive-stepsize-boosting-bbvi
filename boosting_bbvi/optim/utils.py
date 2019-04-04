@@ -11,7 +11,7 @@ from tensorflow.python.ops.distributions import kullback_leibler
 from edward.models.random_variable import RandomVariable
 from edward.models import (Categorical, Dirichlet, Empirical, InverseGamma,
                            MultivariateNormalDiag, Normal, ParamMixture,
-                           Mixture)
+                           Mixture, Laplace, VectorLaplaceDiag)
 
 import sys, os
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -113,7 +113,8 @@ def is_distribution(p):
     """Check if p is one of pre-supported probability distributions.
     """
     DISTRIBUTION_LIST = [
-        Normal, MultivariateNormalDiag, Mixture, Categorical, Empirical
+        Normal, MultivariateNormalDiag, Mixture, Categorical, Empirical,
+        Laplace, VectorLaplaceDiag
     ]
     for dist in DISTRIBUTION_LIST:
         if isinstance(p, dist):
@@ -138,8 +139,8 @@ def _kl_monte_carlo(q, p, n_samples=1000, name=None):
     if not is_distribution(q) or not is_distribution(p):
         raise NotImplementedError(
             "type %s and type %s not supported. If they have a sample() and"
-            "log_prob() method add them" % (type(distribution_a).__name__,
-                                            type(distribution_b).__name__))
+            "log_prob() method add them" % (type(q).__name__,
+                                            type(p).__name__))
     samples = q.sample([n_samples])
     expectation_q = tf.reduce_mean(q.log_prob(samples))
     expectation_p = tf.reduce_mean(p.log_prob(samples))
