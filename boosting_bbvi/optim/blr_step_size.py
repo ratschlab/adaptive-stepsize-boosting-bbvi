@@ -233,7 +233,7 @@ def adaptive_pfw(weights, params, q_t, mu_s, cov_s, s_t, p, k, l_prev):
     logger.info('Pairwise gap %.3e' % gap_pw)
     if gap_pw <= 0:
         logger.warning('Pairwise gap <= 0, returning fixed step')
-        return fixed(weights, params, q_t, mu_s, cov_s, s_t, p, k, gap)
+        return fixed(weights, params, q_t, mu_s, cov_s, s_t, p, k, gap_pw)
     gap = gap_pw
 
     MAX_GAMMA = weights[index_v_t]
