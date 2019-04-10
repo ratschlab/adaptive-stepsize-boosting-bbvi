@@ -41,7 +41,7 @@ flags.DEFINE_list('relbos_files', [], '')
 flags.DEFINE_list('times_files', [], '')
 flags.DEFINE_float('smoothingWt', 0., 'smoothness for the plot')
 
-def resmoothDataset(x):
+def resmoothDataset(x, alpha=0.6):
     """Apply linear filter
     """
     # From tensorboard:
@@ -52,7 +52,7 @@ def resmoothDataset(x):
     last = x[0]
     x_smoothed = []
     for e in x:
-        s = last * FLAGS.smoothingWt + (1 - FLAGS.smoothingWt) * e
+        s = last * alpha + (1 - alpha) * e
         x_smoothed.append(s)
         last = s
     return x_smoothed
@@ -63,7 +63,7 @@ def plot_elbos(ax):
     for i, fname in enumerate(FLAGS.elbos_files):
         with open(fname, 'r') as f:
             elbos = [float(e.split(',')[0]) for e in f.readlines()]
-            elbos = resmoothDataset(elbos)
+            elbos = resmoothDataset(elbos, alpha=FLAGS.smoothingWt)
         ax.plot(elbos, label=FLAGS.labels[i])
         #plt.semilogy(elbos, label=FLAGS.labels[i])
     plt.ylabel('elbo')
@@ -85,7 +85,7 @@ def plot_kl(ax):
     for i, fname in enumerate(FLAGS.kl_files):
         with open(fname, 'r') as f:
             kl = list(map(float, f.readlines()))
-            kl = resmoothDataset(kl)
+            kl = resmoothDataset(kl, alpha=FLAGS.smoothingWt)
         ax.plot(kl, label=FLAGS.labels[i])
     plt.ylabel('kl')
     #plt.legend(loc='lower right')

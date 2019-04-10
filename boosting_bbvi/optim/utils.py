@@ -116,10 +116,8 @@ def is_distribution(p):
         Normal, MultivariateNormalDiag, Mixture, Categorical, Empirical,
         Laplace, VectorLaplaceDiag
     ]
-    for dist in DISTRIBUTION_LIST:
-        if isinstance(p, dist):
-            return True
-    return False
+    return any([isinstance(p, dist) for dist in DISTRIBUTION_LIST])
+
 
 def grad_kl(q, p, theta):
     """Compute gradient of KL Divergence.
@@ -132,6 +130,7 @@ def grad_kl(q, p, theta):
     """
     # Functional Gradient w.r.t q $\nabla KL(q || p) = \log q - \log p$
     return q.log_prob(theta) - p.log_prob(theta)
+
 
 @kullback_leibler.RegisterKL(RandomVariable, RandomVariable)
 def _kl_monte_carlo(q, p, n_samples=1000, name=None):
