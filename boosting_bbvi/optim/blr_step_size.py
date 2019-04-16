@@ -96,15 +96,7 @@ def adafw_linit(q_0, p):
     return FLAGS.linit_fixed
 
 
-def adaptive_fw(weights,
-                params,
-                q_t,
-                mu_s,
-                cov_s,
-                s_t,
-                p,
-                k,
-                l_prev):
+def adaptive_fw(weights, params, q_t, mu_s, cov_s, s_t, p, k, l_prev, gap=None):
     """Adaptive Frank-Wolfe algorithm.
     
     Sets step size as suggested in Algorithm 1 of
@@ -120,8 +112,9 @@ def adaptive_fw(weights,
         p: edward.model, target distribution p
         k: iteration number of Frank-Wolfe
         l_prev: previous lipschitz estimate
+        gap: Duality-Gap (if already computed)
     Returns:
-        a dictionary containing gamma, new weights, components
+        a dictionary containing gamma, new weights, new parameters
         lipschitz estimate, duality gap of current iterate
         and step information
     """
@@ -133,13 +126,14 @@ def adaptive_fw(weights,
     logger.info('\ndistance norm is %.3e' % d_t_norm)
 
     N_samples = FLAGS.n_monte_carlo_samples
-    # create and sample from $s_t, q_t$
-    sample_q = q_t.sample([N_samples])
-    sample_s = s_t.sample([N_samples])
-    step_s = tf.reduce_mean(grad_elbo(q_t, p, sample_s)).eval()
-    step_q = tf.reduce_mean(grad_elbo(q_t, p, sample_q)).eval()
-    debug('step_q = %.2e, step_s = %.2e' % (step_q, step_s))
-    gap = step_q - step_s
+    if gap is None:
+        # create and sample from $s_t, q_t$
+        sample_q = q_t.sample([N_samples])
+        sample_s = s_t.sample([N_samples])
+        step_s = tf.reduce_mean(grad_elbo(q_t, p, sample_s)).eval()
+        step_q = tf.reduce_mean(grad_elbo(q_t, p, sample_q)).eval()
+        debug('step_q = %.2e, step_s = %.2e' % (step_q, step_s))
+        gap = step_q - step_s
     logger.info('duality gap %.3e' % gap)
     if gap < 0:
         logger.warning("Duality gap is negative returning fixed step")
@@ -211,7 +205,23 @@ def adaptive_fw(weights,
 
 
 def adaptive_pfw(weights, params, q_t, mu_s, cov_s, s_t, p, k, l_prev):
-    """Adaptive pairwise variant"""
+    """Adaptive pairwise variant.
+    
+    Args:
+        weights: [k], weights of the mixture components of q_t
+        params: list containing dictionary of mixture params ('mu', 'scale')
+        q_t: current mixture iterate q_t
+        mu_s: [dim], mean for LMO solution s
+        cov_s: [dim], cov matrix for LMO solution s
+        s_t: Current atom & LMO Solution s
+        p: edward.model, target distribution p
+        k: iteration number of Frank-Wolfe
+        l_prev: previous lipschitz estimate
+    Returns:
+        a dictionary containing gamma, new weights, new parameters
+        lipschitz estimate, duality gap of current iterate
+        and step information
+    """
 
     # FIXME
     is_vector = FLAGS.base_dist in ['mvnormal', 'mvlaplace']
@@ -291,6 +301,117 @@ def adaptive_pfw(weights, params, q_t, mu_s, cov_s, s_t, p, k, l_prev):
                 'params': new_params,
                 'gap': gap,
                 'step_type': 'drop' if is_drop_step else 'adaptive'
+            }
+        pow_tau *= tau
+        i += 1
+
+    # gamma below MIN_GAMMA
+    logger.warning("gamma below threshold value, returning fixed step")
+    return fixed(weights, params, q_t, mu_s, cov_s, s_t, p, k, gap)
+
+
+def adaptive_afw(weights, params, q_t, mu_s, cov_s, s_t, p, k, l_prev):
+    """Adaptive Away Steps algorithm.
+    """
+    # FIXME
+    is_vector = FLAGS.base_dist in ['mvnormal', 'mvlaplace']
+
+    d_t_norm = divergence(s_t, q_t, metric=FLAGS.distance_metric).eval()
+    logger.info('\ndistance norm is %.3e' % d_t_norm)
+
+    # Find v_t
+    qcomps = q_t.components
+    index_v_t, step_v_t = argmax_grad_dotp(p, q_t, qcomps,
+                                           FLAGS.n_monte_carlo_samples)
+    v_t = qcomps[index_v_t]
+
+    # Frank-Wolfe gap
+    N_samples = FLAGS.n_monte_carlo_samples
+    sample_q = q_t.sample([N_samples])
+    sample_s = s_t.sample([N_samples])
+    step_s = tf.reduce_mean(grad_elbo(q_t, p, sample_s)).eval()
+    step_q = tf.reduce_mean(grad_elbo(q_t, p, sample_q)).eval()
+    gap_fw = step_q - step_s
+    if gap_fw < 0: logger.warning("Frank-Wolfe duality gap is negative")
+    # Away gap
+    gap_a = step_v_t - step_q
+    if gap_a < 0: eprint('Away gap < 0!!!')
+    logger.info('fw gap %.3e, away gap %.3e' % (gap_fw, gap_a))
+
+    # FIXME(sauravshekhar): In case of one component w will be 1.0
+    # fix FW direction in that case as w / (1 - w) will cause issues
+    if (gap_fw >= gap_a) or (len(params) == 1):
+        # FW direction, proceeds exactly as adafw
+        logger.info('Proceeding in FW direction ')
+        # MAX_GAMMA = 1.0
+        # gap = gap_fw
+        return adaptive_fw(weights, params, q_t, mu_s, cov_s, s_t, p, k,
+                           l_prev, gap_fw)
+
+    # Away direction
+    logger.info('Proceeding in Away direction ')
+    adaptive_step_type = 'away'
+    gap = gap_a
+    if weights[index_v_t] < 1.0:
+        MAX_GAMMA = weights[index_v_t] / (1.0 - weights[index_v_t])
+    else:
+        MAX_GAMMA = 100. # Large value when t = 1
+
+    tau = FLAGS.exp_adafw
+    eta = FLAGS.damping_adafw
+    pow_tau = 1.0
+    i, l_t = 0, l_prev
+    f_t =  -elbo(q_t, p, N_samples, return_std=False).eval()
+    debug('f(q_t) = %.5f' % (f_t))
+    is_drop_step = False
+    while gamma >= MIN_GAMMA:
+        # compute $L_t$ and $\gamma_t$
+        l_t = pow_tau * eta * l_prev
+        # NOTE: Handle extreme values of gamma carefully
+        gamma = min(gap / (l_t * d_t_norm), MAX_GAMMA)
+
+        d_1 = - gamma * gap
+        d_2 = gamma * gamma * l_t * d_t_norm / 2.
+        debug('linear d1 = %.5f, quad d2 = %.5f' % (d_1, d_2))
+        quad_bound_rhs = f_t  + d_1 + d_2
+
+        # construct $q_{t + 1}$
+        new_weights = copy.copy(weights)
+        new_params = copy.copy(params)
+        if gamma == MAX_GAMMA:
+            # drop v_t
+            is_drop_step = True
+            #del new_weights[index_v_t]
+            new_weights[index_v_t] = 0
+            new_weights = [(1. + gamma) * w for w in new_weights]
+            #del new_params[index_v_t]
+            # NOTE: recompute locs and diags after dropping v_t
+            drop_locs = [c['loc'] for c in new_comps]
+            drop_diags = [c['scale_diag'] for c in new_comps]
+        else:
+            new_weights = [(1. + gamma) * w for w in new_weights]
+            new_weights[index_v_t] -= gamma
+
+
+        new_components = [
+            coreutils.base_loc_scale(
+                FLAGS.base_dist, c['loc'], c['scale'], multivariate=is_vector)
+            for c in new_params
+        ]
+
+        qt_new = coreutils.get_mixture(new_weights, new_components)
+        quad_bound_lhs = -elbo(qt_new, p, N_samples, return_std=False)
+        logger.info('lt = %.3e, gamma = %.3f, f_(qt_new) = %.3e, '
+                    'linear extrapolated = %.3e' % (l_t, gamma, quad_bound_lhs,
+                                                    quad_bound_rhs))
+        if quad_bound_lhs <= quad_bound_rhs:
+            return {
+                'gamma': gamma,
+                'l_estimate': l_t,
+                'weights': new_weights,
+                'params': new_params,
+                'gap': gap,
+                'step_type': "away"
             }
         pow_tau *= tau
         i += 1
