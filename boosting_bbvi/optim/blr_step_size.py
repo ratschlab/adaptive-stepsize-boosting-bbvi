@@ -96,7 +96,8 @@ def adafw_linit(q_0, p):
     return FLAGS.linit_fixed
 
 
-def adaptive_fw(weights, params, q_t, mu_s, cov_s, s_t, p, k, l_prev, gap=None):
+def adaptive_fw(weights, params, q_t, mu_s, cov_s, s_t, p, k, l_prev,
+                gap=None):
     """Adaptive Frank-Wolfe algorithm.
     
     Sets step size as suggested in Algorithm 1 of
@@ -277,8 +278,8 @@ def adaptive_pfw(weights, params, q_t, mu_s, cov_s, s_t, p, k, l_prev):
             is_drop_step = False
         else:
             # hardcoding to 0
-            # TODO remove v_t from weights and params
-            new_weights[index_v_t] = 0.
+            del new_weights[index_v_t]
+            del new_params[index_v_t]
             is_drop_step = True
 
         new_components = [
@@ -312,6 +313,21 @@ def adaptive_pfw(weights, params, q_t, mu_s, cov_s, s_t, p, k, l_prev):
 
 def adaptive_afw(weights, params, q_t, mu_s, cov_s, s_t, p, k, l_prev):
     """Adaptive Away Steps algorithm.
+
+    Args:
+        weights: [k], weights of the mixture components of q_t
+        params: list containing dictionary of mixture params ('mu', 'scale')
+        q_t: current mixture iterate q_t
+        mu_s: [dim], mean for LMO solution s
+        cov_s: [dim], cov matrix for LMO solution s
+        s_t: Current atom & LMO Solution s
+        p: edward.model, target distribution p
+        k: iteration number of Frank-Wolfe
+        l_prev: previous lipschitz estimate
+    Returns:
+        a dictionary containing gamma, new weights, new parameters
+        lipschitz estimate, duality gap of current iterate
+        and step information
     """
     # FIXME
     is_vector = FLAGS.base_dist in ['mvnormal', 'mvlaplace']
@@ -343,8 +359,6 @@ def adaptive_afw(weights, params, q_t, mu_s, cov_s, s_t, p, k, l_prev):
     if (gap_fw >= gap_a) or (len(params) == 1):
         # FW direction, proceeds exactly as adafw
         logger.info('Proceeding in FW direction ')
-        # MAX_GAMMA = 1.0
-        # gap = gap_fw
         return adaptive_fw(weights, params, q_t, mu_s, cov_s, s_t, p, k,
                            l_prev, gap_fw)
 
@@ -381,14 +395,13 @@ def adaptive_afw(weights, params, q_t, mu_s, cov_s, s_t, p, k, l_prev):
         if gamma == MAX_GAMMA:
             # drop v_t
             is_drop_step = True
-            #del new_weights[index_v_t]
-            new_weights[index_v_t] = 0
+            del new_weights[index_v_t]
             new_weights = [(1. + gamma) * w for w in new_weights]
-            #del new_params[index_v_t]
-            # NOTE: recompute locs and diags after dropping v_t
-            drop_locs = [c['loc'] for c in new_comps]
-            drop_diags = [c['scale_diag'] for c in new_comps]
+            del new_params[index_v_t]
+            drop_locs = [c['loc'] for c in new_params]
+            drop_diags = [c['scale_diag'] for c in new_params]
         else:
+            is_drop_step = False
             new_weights = [(1. + gamma) * w for w in new_weights]
             new_weights[index_v_t] -= gamma
 
@@ -411,7 +424,7 @@ def adaptive_afw(weights, params, q_t, mu_s, cov_s, s_t, p, k, l_prev):
                 'weights': new_weights,
                 'params': new_params,
                 'gap': gap,
-                'step_type': "away"
+                'step_type': "drop" if is_drop_step else "away"
             }
         pow_tau *= tau
         i += 1

@@ -227,6 +227,16 @@ def main(_):
                     step_type = step_result['step_type']
                     if step_type in ['adaptive', 'drop']:
                         lipschitz_estimate = step_result['l_estimate']
+                elif FLAGS.fw_variant == 'ada_afw':
+                    start_step_time = time.time()
+                    step_result = opt.adaptive_afw(weights, q_params, qtw_prev,
+                                                   loc_s, scale_s, s, p_joint,
+                                                   t, lipschitz_estimate)
+                    end_step_time = time.time()
+                    total_time += float(end_step_time - start_step_time)
+                    step_type = step_result['step_type']
+                    if step_type in ['adaptive', 'away', 'drop']:
+                        lipschitz_estimate = step_result['l_estimate']
                 else:
                     raise NotImplementedError(
                         'Step size variant %s not implemented' %
