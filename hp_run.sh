@@ -11,7 +11,7 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 echo_and_run() { 
-  echo -e "${BROWN}\$ $@${NC}" ; 
+  echo -e "${GREEN}\$ $@${NC}" ; 
   "$@" ; 
 }
 
@@ -31,14 +31,14 @@ if [ -z "$UHOME" ]; then
   UHOME=/home/saurav
 fi
 SRC=${UHOME}/thesis/boosting-bbvi-private/boosting_bbvi
-OUTDIR=${UHOME}/thesis_data/blr
+OUTDIR=${UHOME}/thesis_data/blr/hp
 
 
 ## fw_variant - fixed, line_search, fc, adafw
 FW_VAR_ref=fixed
 
 # Number of iterations
-ITER=20
+ITER=5
 
 # 10 random seeds
 for i in `seq 1 10`;
@@ -74,11 +74,11 @@ do
         #tau=2.0
         #eta=0.2
         #linit_fixed=10.0
-        counter=1
-        for tau in ${tau_list[*]}; do
-          for eta in ${eta_list[*]}; do
-            for linit_fixed in ${linit_list[*]}; do
-              for FW_VAR in adafw ada_pfw ada_afw; do
+        for FW_VAR in adafw ada_pfw ada_afw; do
+          counter=1
+          for tau in ${tau_list[*]}; do
+            for eta in ${eta_list[*]}; do
+              for linit_fixed in ${linit_list[*]}; do
 
                 DDIR=${OUTDIR}/${FW_VAR}_${base_dist}_init_${iter0}_${i}_${counter}
 
@@ -97,11 +97,14 @@ do
                     --LMO_iter 1000 \
                     --linit fixed \
                     --distance_metric kl \
+                    --adafw_MAXITER 10 \
                     --linit_fixed ${linit_fixed} \
                     --damping_adafw ${eta} \
                     --exp_adafw ${tau} \
                     --iter0 ${iter0} \
                     --n_monte_carlo_samples 1000
+
+                counter=$[$counter + 1]
 
               done
             done

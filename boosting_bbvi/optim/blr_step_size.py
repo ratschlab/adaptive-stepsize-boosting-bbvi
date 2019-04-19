@@ -151,7 +151,7 @@ def adaptive_fw(weights, params, q_t, mu_s, cov_s, s_t, p, k, l_prev,
     f_t = -elbo(q_t, p, N_samples, return_std=False)
     debug('f(q_t) = %.3e' % (f_t))
     # return intial estimate if gap is -ve
-    while gamma >= MIN_GAMMA:
+    while gamma >= MIN_GAMMA and i < FLAGS.adafw_MAXITER:
         # compute $L_t$ and $\gamma_t$
         l_t = pow_tau * eta * l_prev
         gamma = min(gap / (l_t * d_t_norm), 1.0)
@@ -257,7 +257,7 @@ def adaptive_pfw(weights, params, q_t, mu_s, cov_s, s_t, p, k, l_prev):
     f_t = -elbo(q_t, p, N_samples, return_std=False)
     debug('f(q_t) = %.3e' % f_t)
     is_drop_step = False
-    while gamma >= MIN_GAMMA:
+    while gamma >= MIN_GAMMA and i < FLAGS.adafw_MAXITER:
         # compute L_t and gamma_t
         l_t = pow_tau * eta * l_prev
         gamma = min(gap / (l_t * d_t_norm), MAX_GAMMA)
@@ -375,10 +375,10 @@ def adaptive_afw(weights, params, q_t, mu_s, cov_s, s_t, p, k, l_prev):
     eta = FLAGS.damping_adafw
     pow_tau = 1.0
     i, l_t = 0, l_prev
-    f_t =  -elbo(q_t, p, N_samples, return_std=False).eval()
+    f_t =  -elbo(q_t, p, N_samples, return_std=False)
     debug('f(q_t) = %.5f' % (f_t))
     is_drop_step = False
-    while gamma >= MIN_GAMMA:
+    while gamma >= MIN_GAMMA and i < FLAGS.adafw_MAXITER:
         # compute $L_t$ and $\gamma_t$
         l_t = pow_tau * eta * l_prev
         # NOTE: Handle extreme values of gamma carefully
