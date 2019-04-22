@@ -67,49 +67,49 @@ do
           --iter0 ${iter0} \
           --n_monte_carlo_samples 1000
 
-        # Run adaptive on parameters
-        tau_list=(1.01 1.1 1.5 2.0)
-        eta_list=(0.1 0.01 0.5 0.99)
-        linit_list=(0.01 1.0 100.0)
-        #tau=2.0
-        #eta=0.2
-        #linit_fixed=10.0
-        for FW_VAR in adafw ada_pfw ada_afw; do
-          counter=1
-          for tau in ${tau_list[*]}; do
-            for eta in ${eta_list[*]}; do
-              for linit_fixed in ${linit_list[*]}; do
+      # Run adaptive on parameters
+      tau_list=(1.01 1.1 1.5 2.0)
+      eta_list=(0.1 0.01 0.5 0.99)
+      linit_list=(0.01 1.0 100.0)
+      #tau=2.0
+      #eta=0.2
+      #linit_fixed=10.0
+      for FW_VAR in adafw ada_pfw ada_afw; do
+        counter=1
+        for tau in ${tau_list[*]}; do
+          for eta in ${eta_list[*]}; do
+            for linit_fixed in ${linit_list[*]}; do
 
-                DDIR=${OUTDIR}/${FW_VAR}_${base_dist}_init_${iter0}_${i}_${counter}
+              DDIR=${OUTDIR}/${FW_VAR}_${base_dist}_init_${iter0}_${i}_${counter}
 
-                echo_and_run \
-                  mkdir -p ${DDIR}
+              echo_and_run \
+                mkdir -p ${DDIR}
 
-                echo_run_and_log ${DDIR}/run.log \
-                  python ${SRC}/scripts/bayesian_logistic_regression.py \
-                    --exp chem \
-                    --fw_variant ${FW_VAR} \
-                    --base_dist ${base_dist} \
-                    --outdir ${DDIR} \
-                    --datapath ${SRC}/data/chem \
-                    --n_fw_iter ${ITER} \
-                    --seed ${seed} \
-                    --LMO_iter 1000 \
-                    --linit fixed \
-                    --distance_metric kl \
-                    --adafw_MAXITER 10 \
-                    --linit_fixed ${linit_fixed} \
-                    --damping_adafw ${eta} \
-                    --exp_adafw ${tau} \
-                    --iter0 ${iter0} \
-                    --n_monte_carlo_samples 1000
+              echo_run_and_log ${DDIR}/run.log \
+                python ${SRC}/scripts/bayesian_logistic_regression.py \
+                  --exp chem \
+                  --fw_variant ${FW_VAR} \
+                  --base_dist ${base_dist} \
+                  --outdir ${DDIR} \
+                  --datapath ${SRC}/data/chem \
+                  --n_fw_iter ${ITER} \
+                  --seed ${seed} \
+                  --LMO_iter 1000 \
+                  --linit fixed \
+                  --distance_metric kl \
+                  --adafw_MAXITER 10 \
+                  --linit_fixed ${linit_fixed} \
+                  --damping_adafw ${eta} \
+                  --exp_adafw ${tau} \
+                  --iter0 ${iter0} \
+                  --n_monte_carlo_samples 1000
 
-                counter=$[$counter + 1]
+              counter=$[$counter + 1]
 
-              done
             done
           done
         done
+      done
 
     done
   done

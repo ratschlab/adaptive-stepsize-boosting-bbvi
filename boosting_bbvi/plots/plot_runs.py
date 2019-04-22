@@ -54,7 +54,7 @@ def parse_run(run):
     result = {}
     while tokens:
         param = order_tok[idx_tok]
-        if param == 'fw_variant' and tokens[0].startswith('ada'):
+        if param == 'fw_variant' and (tokens[0] == 'ada'):
             value = "%s_%s" % (tokens[0], tokens[1])
             tokens = tokens[2:]
         elif param == 'iter0':
@@ -100,23 +100,35 @@ def parse_log(run_name, path):
     if 'iter0' not in res:
         res['iter0'] = 'vi'
 
+    # Fixed variant does not have lipschitz estimate
+    if 'linit_fixed' not in res:
+        res['linit_fixed'] = (0.001
+                              if res['fw_variant'].startswith('ada') else None)
+    if 'exp_adafw' not in res:
+        res['exp_adafw'] = (2.0
+                              if res['fw_variant'].startswith('ada') else None)
+    if 'damping_adafw' not in res:
+        res['damping_adafw'] = (0.99
+                              if res['fw_variant'].startswith('ada') else None)
+
+
     return res
 
-def plot_mvl(df, y='roc', iter0_split=True):
-    mvl_df = df.loc[df['base_dist'] == 'mvl']
+def plot_mvl(df, y='roc', base_split=False, iter0_split=False):
+    if not base_split: df = df.loc[df['base_dist'] == 'mvl']
+
+    # Integer x axis
     fix, ax = plt.subplots()
     ax.xaxis.set_major_locator(MaxNLocator(integer=True))
 
-    if not iter0_split:
-        # show only vi iter0
-        mvl_df = mvl_df.loc[mvl_df['iter0'] == 'vi']
-
     if iter0_split:
-        sns.lineplot(
-            x='fw_iter', y=y, hue='fw_variant', style='iter0', data=mvl_df)
+        g = sns.FacetGrid(df, col="fw_variant", hue='iter0')
+        g.map(sns.lineplot, 'fw_iter', y)
+        g.add_legend()
     else:
-        sns.lineplot(
-            x='fw_iter', y=y, hue='fw_variant', data=mvl_df)
+        # show only vi iter0
+        df = df.loc[df['iter0'] == 'vi']
+        sns.lineplot(x='fw_iter', y=y, hue='fw_variant', data=df)
 
 
 def plot_base_dist(df, y='roc'):
@@ -127,10 +139,42 @@ def plot_base_dist(df, y='roc'):
     sns.lineplot(x='fw_iter', y=y, hue='fw_variant', data=mvn_df, ax=ax[1])
 
 
-def plot_adaptive():
+def plot_adaptive(df, base_split=False, iter0_split=False):
+    """Analyze the performance of adaptive variants.
+
+    Args:
+        base_split: keep only Laplace
+        iter0_split: keep only vi
+    """
+    if not base_split: df = df.loc[df['base_dist'] == 'mvl']
+    if not iter0_split: df = df.loc[df['iter0'] == 'vi']
+    df = df.loc[df['fw_variant'].isin(['adafw', 'ada_afw', 'ada_pfw'])]
+
     # plot linit with style
+    g = sns.FacetGrid(df, col="fw_variant", hue='linit_fixed')
+    g.map(sns.lineplot, 'fw_iter', 'roc')
+    g.add_legend()
+
+    ## style plot gets very crowded
+    #sns.lineplot(
+    #    x='fw_iter', y='roc', hue='fw_variant', style='linit_fixed', data=df)
+
     # plot eta, tau best results heatmap
+    plt.figure()
+    #hp_matrix = df.groupby(['eta', 'tau'])['roc'].max().unstack()
+    hp_matrix = pd.crosstab(df.eta, df.tau, values=df.roc, aggfunc='max')
+    sns.heatmap(hp_matrix)
+
     # plot iter info
+    fig, ax = plt.subplots(3, 1)
+    for i, fw_var in enumerate(['adafw', 'ada_pfw', 'ada_afw']):
+        df_var = df.loc[df['fw_variant'] == fw_var]
+        t_matrix = pd.crosstab(df_var.fw_iter, df_var.iter_type)
+        #t_matrix.columns.names = ['']
+        #t_matrix.reset_index(inplace=True)
+        #sns.barplot(x='fw_iter', hue='iter_info', data=t_matrix)
+        t_matrix.plot(kind='bar', stacked=True, title=fw_var, ax=ax[i])
+
     # plot lipschitz estimates
     pass
 
@@ -150,6 +194,9 @@ def main(datapath):
         with open(rocs_filename, 'r') as f:
             rocs = [float(r.strip()) for r in f.readlines()]
 
+        # set number of iterations to plot
+        n_fw_iter = param_dict.get('n_fw_iter', len(rocs))
+
         ll_train_filename = os.path.join(dr, 'll_train.csv')
         with open(ll_train_filename, 'r') as f:
             ll_trains = [float(r.split(',')[0]) for r in f.readlines()]
@@ -166,7 +213,23 @@ def main(datapath):
         with open(gap_filename, 'r') as f:
             gaps = [float(r.strip()) for r in f.readlines()]
 
-        n_fw_iter = param_dict.get('n_fw_iter', len(rocs))
+        iter_info_filename = os.path.join(dr, 'iter_info.txt')
+        if os.path.isfile(iter_info_filename):
+            with open(iter_info_filename, 'r') as f:
+                iter_types = [r.strip() for r in f.readlines()]
+        else:
+            iter_types = ['fixed'] * n_fw_iter
+
+        n_fw_iter = max([
+            len(rocs),
+            len(ll_trains),
+            len(ll_tests),
+            len(elbos),
+            len(gaps),
+            len(iter_types), n_fw_iter
+        ])
+
+        # Padding to make all lists of equal length
         if len(rocs) < n_fw_iter:
             rocs.extend([None] * (n_fw_iter - len(rocs)))
         if len(ll_trains) < n_fw_iter:
@@ -177,6 +240,8 @@ def main(datapath):
             elbos.extend([None] * (n_fw_iter - len(elbos)))
         if len(gaps) < n_fw_iter:
             gaps.extend([None] * (n_fw_iter - len(gaps)))
+        if len(iter_types) < n_fw_iter:
+            iter_types.extend([None] * (n_fw_iter - len(iter_types)))
 
         data = {
             'roc': rocs,
@@ -184,22 +249,64 @@ def main(datapath):
             'll_test': ll_tests,
             'elbo': elbos,
             'gap': gaps,
+            'iter_type': iter_types,
             'fw_iter': list(range(n_fw_iter)),
             'fw_variant': [param_dict['fw_variant']] * n_fw_iter,
             'base_dist': [param_dict['base_dist']] * n_fw_iter,
-            'iter0': [param_dict['iter0']] * n_fw_iter
+            'iter0': [param_dict['iter0']] * n_fw_iter,
+            'linit_fixed': [param_dict['linit_fixed']] * n_fw_iter,
+            'tau': [param_dict['exp_adafw']] * n_fw_iter,
+            'eta': [param_dict['damping_adafw']] * n_fw_iter
         }
         run_df = pd.DataFrame(data)
-
         df = df.append(run_df, ignore_index=True)
 
     ### Make plot ###
-    #plot_mvl(df, 'roc', True)
-    #plot_mvl(df, 'elbo', False)
-    #plot_mvl(df, 'gap', False)
+    plot_mvl(df, 'roc')
+    plot_mvl(df, 'roc', iter0_split=True)
+    #plot_mvl(df, 'elbo')
+    #plot_adaptive(df)
     plt.show()
     pass
 
 
+def info(datapath):
+    run_names = [
+        d for d in os.listdir(datapath)
+        if os.path.isdir(os.path.join(datapath, d))
+    ]
+    run_paths = [os.path.join(datapath, d) for d in run_names]
+
+    def get_n_lines(filepath):
+        if not os.path.isfile(filepath): return 0
+        with open(filepath, 'r') as f:
+            return len(list(f.readlines()))
+
+    fixed_n, adafw_n, ada_afw_n, ada_pfw_n  = [], [], [], []
+    for dn, dr in zip(run_names, run_paths):
+        if dn.startswith('fixed'):
+            fixed_n.append(get_n_lines(os.path.join(dr, 'roc.csv')))
+        elif dn.startswith('adafw'):
+            adafw_n.append(get_n_lines(os.path.join(dr, 'roc.csv')))
+        elif dn.startswith('ada_afw'):
+            ada_afw_n.append(get_n_lines(os.path.join(dr, 'roc.csv')))
+        elif dn.startswith('ada_pfw'):
+            ada_pfw_n.append(get_n_lines(os.path.join(dr, 'roc.csv')))
+
+    fixed_n = np.asarray(fixed_n)
+    print('fixed: median run length %d, number of runs %d' %
+          (np.median(fixed_n), len(fixed_n)))
+    adafw_n = np.asarray(adafw_n)
+    print('adafw: median run length %d, number of runs %d' %
+          (np.median(adafw_n), len(adafw_n)))
+    ada_afw_n = np.asarray(ada_afw_n)
+    print('ada_afw: median run length %d, number of runs %d' %
+          (np.median(ada_afw_n), len(ada_afw_n)))
+    ada_pfw_n = np.asarray(ada_pfw_n)
+    print('ada_pfw: median run length %d, number of runs %d' %
+          (np.median(ada_pfw_n), len(ada_pfw_n)))
+
+
 if __name__ == "__main__":
+    #info(sys.argv[1])
     main(sys.argv[1])
