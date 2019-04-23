@@ -371,6 +371,7 @@ def adaptive_afw(weights, params, q_t, mu_s, cov_s, s_t, p, k, l_prev):
     else:
         MAX_GAMMA = 100. # Large value when t = 1
 
+    gamma = 2. / (k + 2.)
     tau = FLAGS.exp_adafw
     eta = FLAGS.damping_adafw
     pow_tau = 1.0
