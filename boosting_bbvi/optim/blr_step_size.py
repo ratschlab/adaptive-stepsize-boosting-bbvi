@@ -399,8 +399,6 @@ def adaptive_afw(weights, params, q_t, mu_s, cov_s, s_t, p, k, l_prev):
             del new_weights[index_v_t]
             new_weights = [(1. + gamma) * w for w in new_weights]
             del new_params[index_v_t]
-            drop_locs = [c['loc'] for c in new_params]
-            drop_diags = [c['scale_diag'] for c in new_params]
         else:
             is_drop_step = False
             new_weights = [(1. + gamma) * w for w in new_weights]
