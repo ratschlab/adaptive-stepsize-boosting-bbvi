@@ -29,6 +29,7 @@ from edward.models import (Categorical, Dirichlet, Empirical, InverseGamma,
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", ".."))
 import boosting_bbvi.core.relbo as relbo
 import boosting_bbvi.core.utils as coreutils
+import boosting_bbvi.core.elbo as elboModel
 import boosting_bbvi.optim.blr_step_size as opt
 from boosting_bbvi.optim.utils import elbo
 import boosting_bbvi.scripts.blr_utils as blr_utils
@@ -263,8 +264,16 @@ def main(_):
                 append_to_file(times_filename, total_time)
 
                 elbo_t = elbo(qtw_new, p_joint, return_std=False)
-                logger.info("iter, %d, elbo, %.2f " % (t, elbo_t))
-                append_to_file(elbos_filename, "%f" % (elbo_t))
+                # testing elbo directory from KLqp
+                elbo_loss = elboModel.KLqp({w: qtw_new},
+                        data={X: Xtrain, y: ytrain})
+                res_update = elbo_loss.run()
+                debug(res_update['loss'], elbo_t)
+
+                logger.info("iter, %d, elbo, %.2f loss %.2f" %
+                            (t, elbo_t, res_update['loss']))
+                append_to_file(elbos_filename,
+                               "%f,%f" % (elbo_t, res_update['loss']))
 
                 logger.info('iter %d, gamma %.4f' % (t, gamma))
                 append_to_file(step_filename, gamma)
