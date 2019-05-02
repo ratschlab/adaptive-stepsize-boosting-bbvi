@@ -355,6 +355,8 @@ def main(_):
                         y_post: ytest,
                     })
                 logger.info("edward mse test ll %.2f" % (mse_test))
+
+            sess.close()
         tf.reset_default_graph()
 
 
