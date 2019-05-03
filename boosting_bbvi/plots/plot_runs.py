@@ -7,13 +7,38 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 sns.set(style="darkgrid")
 from matplotlib.ticker import MaxNLocator
-
+import argparse
 
 import os, sys
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", ".."))
 from boosting_bbvi.core.utils import eprint, debug
 
+parser = argparse.ArgumentParser()
+parser.add_argument(
+    "--cluster", help='Is the log file from a cluster', default=False)
+parser.add_argument(
+    "--metric", help='metric to plot', default='roc')
+parser.add_argument(
+    "--n_fw_iter", help='number of fw iterations to plot', default=25, type=int)
+parser.add_argument(
+    "--adaptive_var",
+    help='adaptive variant to process',
+    nargs='+',
+    choices=['adafw', 'ada_pfw', 'ada_afw'])
+parser.add_argument(
+    "--select_adaptive",
+    default='all',
+    choices=['all', 'seed_best', 'hp_best'],
+    help="""method to select adaptive runs,
+                all: all runs
+                seed_best: for each seed, choose the best run
+                hp_best: choose the best hp over all runs
+                """)
+parser.add_argument('--datapath', type=str, help='directory containing run data')
+args = parser.parse_args()
+
 def parse_command(cmd):
+    #NOTE: Maybe just use argparse here
     """Parse running command
     
     Tokens split by = or space
@@ -78,12 +103,19 @@ def parse_run(run):
 def parse_log(run_name, path):
     """Parse log
     
+    run_name: name of directory
     path: full path, assumes run.log present with first line being
         command
+    cluster: if the log file is from the clusters (euler/leonhard/leomed)
+        or normal stdout
     """
     if os.path.isfile(path):
-        cmd = open(path, 'r').readline()
-        res = parse_command(cmd)
+        with open(path, 'r') as f:
+            while args.cluster:
+                if f.readline().startswith('# LSBATCH: User input'):
+                    break
+            cmd = f.readline()
+            res = parse_command(cmd)
     else:
         res = parse_run(run_name)
 
@@ -111,12 +143,12 @@ def parse_log(run_name, path):
         res['damping_adafw'] = (0.99
                               if res['fw_variant'].startswith('ada') else None)
 
+    if 'seed' not in res:
+        res['seed'] = 0
 
     return res
 
-def plot_mvl(df, y='roc', base_split=False, iter0_split=False):
-    if not base_split: df = df.loc[df['base_dist'] == 'mvl']
-
+def plot_mvl(df, y='roc', iter0_split=False):
     # Integer x axis
     fix, ax = plt.subplots()
     ax.xaxis.set_major_locator(MaxNLocator(integer=True))
@@ -131,22 +163,22 @@ def plot_mvl(df, y='roc', base_split=False, iter0_split=False):
         sns.lineplot(x='fw_iter', y=y, hue='fw_variant', data=df)
 
 
+
 def plot_base_dist(df, y='roc'):
-    mvl_df = df.loc[df['base_dist'] == 'mvl']
-    mvn_df = df.loc[df['base_dist'] == 'mvn']
-    fix, ax = plt.subplots(1, 2)
-    sns.lineplot(x='fw_iter', y=y, hue='fw_variant', data=mvl_df, ax=ax[0])
-    sns.lineplot(x='fw_iter', y=y, hue='fw_variant', data=mvn_df, ax=ax[1])
+    # FIXME
+    # Integer x axis
+    fix, ax = plt.subplots()
+    ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+    sns.lineplot(x='fw_iter', y=y, hue='fw_variant', style='base_dist', data=df)
 
 
-def plot_adaptive(df, base_split=False, iter0_split=False):
+def plot_adaptive(df, iter0_split=False):
     """Analyze the performance of adaptive variants.
 
     Args:
         base_split: keep only Laplace
         iter0_split: keep only vi
     """
-    if not base_split: df = df.loc[df['base_dist'] == 'mvl']
     if not iter0_split: df = df.loc[df['iter0'] == 'vi']
     df = df.loc[df['fw_variant'].isin(['adafw', 'ada_afw', 'ada_pfw'])]
 
@@ -166,8 +198,8 @@ def plot_adaptive(df, base_split=False, iter0_split=False):
     sns.heatmap(hp_matrix)
 
     # plot iter info
-    fig, ax = plt.subplots(3, 1)
-    for i, fw_var in enumerate(['adafw', 'ada_pfw', 'ada_afw']):
+    fig, ax = plt.subplots(len(args.adaptive_var), 1)
+    for i, fw_var in enumerate(args.adaptive_var):
         df_var = df.loc[df['fw_variant'] == fw_var]
         t_matrix = pd.crosstab(df_var.fw_iter, df_var.iter_type)
         #t_matrix.columns.names = ['']
@@ -179,23 +211,74 @@ def plot_adaptive(df, base_split=False, iter0_split=False):
     pass
 
 
-def main(datapath):
+def filter_adaptive(df, y='roc'):
+    """Select adaptive runs to process"""
+    #TODO vectorize this
+    if y not in ['roc', 'elbo']:
+        raise NotImplementedError('gap and other metrics should be minimized')
+    if args.select_adaptive != 'all':
+        filtered = [df.loc[df['fw_variant'] == 'fixed']]
+        for fw_var in args.adaptive_var:
+            df_var = df.loc[df['fw_variant'] == fw_var]
+            if args.select_adaptive == 'hp_best':
+                # find row with max val and use it's hps
+                best_idx = df_var[y].idxmax()
+                df_var_filtered = df_var.loc[
+                    (df_var['eta'] == df_var.loc[best_idx]['eta'])
+                    & (df_var['tau'] == df_var.loc[best_idx]['tau'])
+                    & (df_var['linit_fixed'] == df_var.loc[best_idx]['linit_fixed'])]
+                filtered.append(df_var_filtered)
+            elif args.select_adaptive == 'seed_best':
+                # for each seed, find the best parameter configurations
+                best_idx = df_var.groupby(['seed'])[y].idxmax()
+                df_var_best_iter = df_var.loc[best_idx]
+                for index, row in df_var_best_iter.iterrows():
+                    df_var_filtered = df_var.loc[
+                        (df_var['eta'] == row['eta'])
+                        & (df_var['tau'] == row['tau'])
+                        & (df_var['linit_fixed'] == row['linit_fixed'])
+                        & (df_var['seed'] == row['seed'])]
+                    filtered.append(df_var_filtered)
+        df = pd.concat(filtered)
+
+    #debug(df.groupby(['seed', 'fw_variant']).size())
+    df.reset_index(inplace=True)
+
+    return df
+
+def pad_or_crop(a, n):
+    """Fix len of list a to n"""
+    if len(a) > n:
+        a = a[:n]
+    elif len(a) < n:
+        a.extend([None] * (n - len(a)))
+    return a
+
+
+def main():
     run_names = [
-        d for d in os.listdir(datapath)
-        if os.path.isdir(os.path.join(datapath, d))
+        d for d in os.listdir(args.datapath)
+        if os.path.isdir(os.path.join(args.datapath, d))
     ]
-    run_paths = [os.path.join(datapath, d) for d in run_names]
+    run_paths = [os.path.join(args.datapath, d) for d in run_names]
 
     df = pd.DataFrame()
+    cnt = 0
+    runs_df = []
+    seeds_used = set()
     for nr, dr in zip(run_names, run_paths):
         param_dict = parse_log(nr, os.path.join(dr, 'run.log'))
+        if param_dict['fw_variant'] not in args.all_var:
+            continue
+        seeds_used.add(param_dict.get('seed', 0))
 
         rocs_filename = os.path.join(dr, 'roc.csv')
         with open(rocs_filename, 'r') as f:
             rocs = [float(r.strip()) for r in f.readlines()]
 
         # set number of iterations to plot
-        n_fw_iter = param_dict.get('n_fw_iter', len(rocs))
+        #n_fw_iter = param_dict.get('n_fw_iter', len(rocs))
+        n_fw_iter = args.n_fw_iter
 
         ll_train_filename = os.path.join(dr, 'll_train.csv')
         with open(ll_train_filename, 'r') as f:
@@ -220,28 +303,12 @@ def main(datapath):
         else:
             iter_types = ['fixed'] * n_fw_iter
 
-        n_fw_iter = max([
-            len(rocs),
-            len(ll_trains),
-            len(ll_tests),
-            len(elbos),
-            len(gaps),
-            len(iter_types), n_fw_iter
-        ])
-
-        # Padding to make all lists of equal length
-        if len(rocs) < n_fw_iter:
-            rocs.extend([None] * (n_fw_iter - len(rocs)))
-        if len(ll_trains) < n_fw_iter:
-            ll_trains.extend([None] * (n_fw_iter - len(ll_trains)))
-        if len(ll_tests) < n_fw_iter:
-            ll_tests.extend([None] * (n_fw_iter - len(ll_tests)))
-        if len(elbos) < n_fw_iter:
-            elbos.extend([None] * (n_fw_iter - len(elbos)))
-        if len(gaps) < n_fw_iter:
-            gaps.extend([None] * (n_fw_iter - len(gaps)))
-        if len(iter_types) < n_fw_iter:
-            iter_types.extend([None] * (n_fw_iter - len(iter_types)))
+        rocs = pad_or_crop(rocs, n_fw_iter)
+        ll_trains = pad_or_crop(ll_trains, n_fw_iter)
+        ll_tests = pad_or_crop(ll_tests, n_fw_iter)
+        elbos = pad_or_crop(elbos, n_fw_iter)
+        gaps = pad_or_crop(gaps, n_fw_iter)
+        iter_types = pad_or_crop(iter_types, n_fw_iter)
 
         data = {
             'roc': rocs,
@@ -252,6 +319,7 @@ def main(datapath):
             'iter_type': iter_types,
             'fw_iter': list(range(n_fw_iter)),
             'fw_variant': [param_dict['fw_variant']] * n_fw_iter,
+            'seed': [param_dict['seed']] * n_fw_iter,
             'base_dist': [param_dict['base_dist']] * n_fw_iter,
             'iter0': [param_dict['iter0']] * n_fw_iter,
             'linit_fixed': [param_dict['linit_fixed']] * n_fw_iter,
@@ -259,23 +327,34 @@ def main(datapath):
             'eta': [param_dict['damping_adafw']] * n_fw_iter
         }
         run_df = pd.DataFrame(data)
-        df = df.append(run_df, ignore_index=True)
+        runs_df.append(run_df)
+
+        cnt += 1
+        if cnt % 500 == 0: debug(cnt, " runs processed")
+
+
+    debug('seeds used ', list(seeds_used))
+    df = pd.concat(runs_df)
+    # mvl vs mvn is a modelling choice
+    df = df.loc[df['base_dist'] == 'mvl']
+    df.reset_index(inplace=True)
+    #df = filter_adaptive(df, args.metric)
 
     ### Make plot ###
-    plot_mvl(df, 'roc')
-    plot_mvl(df, 'roc', iter0_split=True)
-    #plot_mvl(df, 'elbo')
+    #plot_base_dist(df, args.metric)
+    plot_mvl(df, args.metric)
+    #plot_mvl(df, args.metric, iter0_split=True)
     #plot_adaptive(df)
     plt.show()
     pass
 
 
-def info(datapath):
+def info():
     run_names = [
-        d for d in os.listdir(datapath)
-        if os.path.isdir(os.path.join(datapath, d))
+        d for d in os.listdir(args.datapath)
+        if os.path.isdir(os.path.join(args.datapath, d))
     ]
-    run_paths = [os.path.join(datapath, d) for d in run_names]
+    run_paths = [os.path.join(args.datapath, d) for d in run_names]
 
     def get_n_lines(filepath):
         if not os.path.isfile(filepath): return 0
@@ -308,5 +387,6 @@ def info(datapath):
 
 
 if __name__ == "__main__":
-    #info(sys.argv[1])
-    main(sys.argv[1])
+    args.all_var = args.adaptive_var + ['fixed']
+    #info()
+    main()
