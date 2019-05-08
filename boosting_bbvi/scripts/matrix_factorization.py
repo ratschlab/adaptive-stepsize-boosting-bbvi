@@ -20,6 +20,7 @@ from edward.models import (Normal, MultivariateNormalDiag, Mixture,
 
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", ".."))
 import boosting_bbvi.core.relbo as relbo
+import boosting_bbvi.core.elbo as elboModel
 from boosting_bbvi.core.utils import block_diagonal, eprint, debug, append_to_file
 import boosting_bbvi.core.utils as coreutils
 logger = coreutils.get_logger()
@@ -89,8 +90,19 @@ def main(_):
 
     # Metrics to log
     # TODO replace it with file logging
-    mses, test_mses, test_lls = [], [], []
+    #mses, test_mses, test_lls = [], [], []
+    mse_train_filename = os.path.join(outdir, 'mse_train.csv')
+    open(mse_train_filename, 'w').close()
 
+    mse_test_filename = os.path.join(outdir, 'mse_test.csv')
+    open(mse_test_filename, 'w').close()
+
+    ll_test_filename = os.path.join(outdir, 'll_test.csv')
+    open(ll_test_filename, 'w').close()
+
+    elbos_filename = os.path.join(outdir, 'elbos.csv')
+    open(elbos_filename, 'w').close()
+    
     for t in range(FLAGS.n_fw_iter):
         g = tf.Graph()
         with g.as_default():
@@ -108,7 +120,6 @@ def main(_):
                      tf.zeros([D, M])], axis=1)
 
                 UV = Normal(loc=mean_uv, scale=scale_uv)
-                debug('UV', UV.event_shape, UV.batch_shape)
                 R = Normal(
                     loc=tf.matmul(tf.transpose(UV[:, :N]), UV[:, N:]) * I,
                     scale=tf.ones([N, M]))
@@ -120,7 +131,7 @@ def main(_):
                     # Current solution
                     prev_components = [
                         coreutils.base_loc_scale(
-                            'mvnormal',
+                            'mvn',
                             c['loc'],
                             c['scale'],
                             multivariate=False) for c in qUVt_components
@@ -141,8 +152,6 @@ def main(_):
                                       axis=1)
 
                 sUV = Normal(loc=mean_suv, scale=scale_suv)
-                debug('sUV', sUV.event_shape, sUV.batch_shape)
-                debug('t is ', t)
 
                 inference = relbo.KLqp({UV: sUV}, data={R: R_true, I: I_train},
                                        fw_iterates=fw_iterates, fw_iter=t)
@@ -159,11 +168,16 @@ def main(_):
 
                 if t == 0:
                     gamma = 1.
-                    new_components = [sUV]
+                    #new_components = [sUV]
+                    new_components = [coreutils.base_loc_scale(
+                            'mvn',
+                            loc_s,
+                            scale_s,
+                            multivariate=False)]
                 else:
                     new_components = [
                         coreutils.base_loc_scale(
-                            'normal',
+                            'mvn',
                             c['loc'],
                             c['scale'],
                             multivariate=False) for c in qUVt_components
@@ -183,8 +197,8 @@ def main(_):
                         qR: R_true,
                         I: I_test.astype(bool)
                     })
-                test_mses.append(test_mse)
-                print('test mse', test_mse)
+                logger.info("ed test mse %.2f" % test_mse)
+                append_to_file(mse_test_filename, test_mse)
 
                 test_ll = ed.evaluate(
                     'log_lik',
@@ -192,17 +206,14 @@ def main(_):
                         qR: R_true.astype('float32'),
                         I: I_test.astype(bool)
                     })
-                test_lls.append(test_ll)
-                print('test_ll', test_ll)
+                logger.info("ed test ll %.2f" % test_ll)
+                append_to_file(ll_test_filename, test_ll)
 
-                #np.savetxt(
-                #    os.path.join(FLAGS.outdir, 'test_mse.csv'),
-                #    test_mses,
-                #    delimiter=',')
-                #np.savetxt(
-                #    os.path.join(FLAGS.outdir, 'test_ll.csv'),
-                #    test_lls,
-                #    delimiter=',')
+                elbo_loss = elboModel.KLqp({UV: sUV}, data={R: R_true, I: I_train})
+                res_update = elbo_loss.run()
+                logger.info('-elbo loss %.2f', res_update['loss'])
+                append_to_file(elbos_filename, -res_update['loss'])
+
                 sess.close()
 
 
