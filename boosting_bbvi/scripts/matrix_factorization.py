@@ -197,7 +197,7 @@ def main(_):
                         qR: R_true,
                         I: I_test.astype(bool)
                     })
-                logger.info("ed test mse %.2f" % test_mse)
+                logger.info("iter %d ed test mse %.5f" % (t, test_mse))
                 append_to_file(mse_test_filename, test_mse)
 
                 test_ll = ed.evaluate(
@@ -206,12 +206,12 @@ def main(_):
                         qR: R_true.astype('float32'),
                         I: I_test.astype(bool)
                     })
-                logger.info("ed test ll %.2f" % test_ll)
+                logger.info("tier %d ed test ll %.5f" % (t, test_ll))
                 append_to_file(ll_test_filename, test_ll)
 
                 elbo_loss = elboModel.KLqp({UV: sUV}, data={R: R_true, I: I_train})
                 res_update = elbo_loss.run()
-                logger.info('-elbo loss %.2f', res_update['loss'])
+                logger.info('iter %d -elbo loss %.2f' % (t, res_update['loss']))
                 append_to_file(elbos_filename, -res_update['loss'])
 
                 sess.close()
