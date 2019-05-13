@@ -20,6 +20,7 @@ from edward.models import (Normal, MultivariateNormalDiag, Mixture,
 
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", ".."))
 import boosting_bbvi.core.relbo as relbo
+import boosting_bbvi.optim.bmf_step_size as opt
 import boosting_bbvi.core.elbo as elboModel
 from boosting_bbvi.core.utils import block_diagonal, eprint, debug, append_to_file
 import boosting_bbvi.core.utils as coreutils
@@ -160,14 +161,15 @@ def main(_):
                 loc_s = sUV.mean().eval()
                 scale_s = sUV.stddev().eval()
 
-                # TODO move this to fixed step
-                gamma = 2. / (t + 2.)
-                weights = [(1. - gamma) * w for w in weights]
-                weights.append(gamma)
-                qUVt_components.append({'loc': loc_s, 'scale': scale_s})
+                if t > 0:
+                    data = {R: R_true, I: I_train}
+                    step_result = opt.fixed(weights, qUVt_components, qUV_prev,
+                                            loc_s, scale_s, sUV, UV, data, t)
 
                 if t == 0:
                     gamma = 1.
+                    weights.append(gamma)
+                    qUVt_components.append({'loc': loc_s, 'scale': scale_s})
                     #new_components = [sUV]
                     new_components = [coreutils.base_loc_scale(
                             'mvn',
@@ -175,6 +177,9 @@ def main(_):
                             scale_s,
                             multivariate=False)]
                 else:
+                    qUVt_components = step_result['params']
+                    weights = step_result['weights']
+                    gamma = step_result['gamma']
                     new_components = [
                         coreutils.base_loc_scale(
                             'mvn',
@@ -209,7 +214,7 @@ def main(_):
                 logger.info("tier %d ed test ll %.5f" % (t, test_ll))
                 append_to_file(ll_test_filename, test_ll)
 
-                elbo_loss = elboModel.KLqp({UV: sUV}, data={R: R_true, I: I_train})
+                elbo_loss = elboModel.KLqp({UV: qUV_new}, data={R: R_true, I: I_train})
                 res_update = elbo_loss.run()
                 logger.info('iter %d -elbo loss %.2f' % (t, res_update['loss']))
                 append_to_file(elbos_filename, -res_update['loss'])
