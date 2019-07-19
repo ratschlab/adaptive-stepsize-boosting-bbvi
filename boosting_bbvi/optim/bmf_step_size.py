@@ -36,10 +36,6 @@ flags.DEFINE_enum(
 
 MIN_GAMMA = 0.01
 
-#step_result = opt.fixed(weights, qUVt_components, qUV_prev,
-#                        loc_s, scale_s, sUV, UV, data, t)
-#elbo_loss = elboModel.KLqp({UV: qUV_new}, data={R: R_true, I: I_train})
-#res_update = elbo_loss.run()
 def fixed(weights, params, q_t, mu_s, cov_s, s_t, pz, data, k, gap=None):
     """Fixed step size.
     
@@ -64,6 +60,11 @@ def fixed(weights, params, q_t, mu_s, cov_s, s_t, pz, data, k, gap=None):
     new_params = copy.copy(params)
     new_params.append({'loc': mu_s, 'scale': cov_s})
 
+    def neg_elbo(q):
+        elbo_loss = elboModel.KLqp({pz: q}, data)
+        return elbo_loss.run()['loss']
+    print('DEBUG neg elbo', neg_elbo(q_t))
+
     return {
         'gamma': gamma,
         'weights': new_weights,
@@ -72,3 +73,118 @@ def fixed(weights, params, q_t, mu_s, cov_s, s_t, pz, data, k, gap=None):
     }
 
 
+def adafw_linit():
+    return FLAGS.linit_fixed
+
+
+def adaptive_fw(weights, params, q_t, mu_s, cov_s, s_t, pz, data, k, l_prev,
+                gap=None):
+    """Adaptive Frank-Wolfe algorithm.
+    
+    Sets step size as suggested in Algorithm 1 of
+    https://arxiv.org/pdf/1806.05123.pdf
+
+    Args:
+        weights: [k], weights of the mixture components of q_t
+        params: list containing dictionary of mixture params ('mu', 'scale')
+        q_t: current mixture iterate q_t
+        mu_s: [dim], mean for LMO solution s
+        cov_s: [dim], cov matrix for LMO solution s
+        s_t: Current atom & LMO Solution s
+        pz: latent variable (UV) distribution (NOT JOINT)
+        data: training data
+        k: iteration number of Frank-Wolfe
+        l_prev: previous lipschitz estimate
+        gap: Duality-Gap (if already computed)
+    Returns:
+        a dictionary containing gamma, new weights, new parameters
+        lipschitz estimate, duality gap of current iterate
+        and step information
+    """
+
+    # FIXME
+    is_vector = FLAGS.base_dist in ['mvnormal', 'mvlaplace']
+
+    d_t_norm = divergence(s_t, q_t, metric=FLAGS.distance_metric).eval()
+    logger.info('\ndistance norm is %.3e' % d_t_norm)
+
+    N_samples = FLAGS.n_monte_carlo_samples
+    if gap is None:
+        ## since pz is not joint p(z, x) or target p(z|x) but only
+        ## the prior, TODO 1. try pz 2. implement joint
+        gap = 1.
+    logger.info('duality gap %.3e' % gap)
+    if gap < 0:
+        logger.warning("Duality gap is negative returning fixed step")
+        return fixed(weights, params, q_t, mu_s, cov_s, s_t, p, k, gap)
+
+    gamma = 2. / (k + 2.)
+    tau = FLAGS.exp_adafw
+    eta = FLAGS.damping_adafw
+    # NOTE: this is from v1 of the paper, new version
+    # replaces multiplicative eta with divisor eta
+    pow_tau = 1.0
+    i, l_t = 0, l_prev
+
+    # Objective in this case is -ELBO, elbo loss
+    def neg_elbo(q):
+        elbo_loss = elboModel.KLqp({pz: q}, data)
+        return elbo_loss.run()['loss']
+
+    #f_t = -elbo(q_t, p, N_samples, return_std=False)
+
+    debug('f(q_t) = %.3e' % (f_t))
+    # return intial estimate if gap is -ve
+    while gamma >= MIN_GAMMA and i < FLAGS.adafw_MAXITER:
+        # compute $L_t$ and $\gamma_t$
+        l_t = pow_tau * eta * l_prev
+        gamma = min(gap / (l_t * d_t_norm), 1.0)
+        d_1 = - gamma * gap
+        d_2 = gamma * gamma * l_t * d_t_norm / 2.
+        debug('linear d1 = %.3e, quad d2 = %.3e' % (d_1, d_2))
+        quad_bound_rhs = f_t + d_1 + d_2
+
+        # $w_{t + 1} = [(1 - \gamma)w_t, \gamma]$
+        # Handling the case of gamma = 1.0
+        # separately, weights might not get exactly 0 because
+        # of precision issues. 0 wt components should be removed
+        if gamma != 1.0:
+            new_weights = copy.copy(weights)
+            new_weights = [(1. - gamma) * w for w in new_weights]
+            new_weights.append(gamma)
+            new_params = copy.copy(params)
+            new_params.append({'loc': mu_s, 'scale': cov_s})
+            new_components = [
+                coreutils.base_loc_scale(
+                    FLAGS.base_dist,
+                    c['loc'],
+                    c['scale'],
+                    multivariate=is_vector) for c in new_params
+            ]
+        else:
+            new_weights = [1.]
+            new_params = [{'loc': mu_s, 'scale': cov_s}]
+            new_components = [s_t]
+
+        qt_new = coreutils.get_mixture(new_weights, new_components)
+        #quad_bound_lhs = -elbo(qt_new, p, N_samples, return_std=False)
+        quad_bound_lhs = neg_elbo(qt_new)
+        logger.info('lt = %.3e, gamma = %.3f, f_(qt_new) = %.3e, '
+                    'linear extrapolated = %.3e' % (l_t, gamma, quad_bound_lhs,
+                                                    quad_bound_rhs))
+        if quad_bound_lhs <= quad_bound_rhs:
+            # Adaptive loop succeeded
+            return {
+                'gamma': gamma,
+                'l_estimate': l_t,
+                'weights': new_weights,
+                'params': new_params,
+                'gap': gap,
+                'step_type': 'adaptive'
+            }
+        pow_tau *= tau
+        i += 1
+
+    # gamma below MIN_GAMMA
+    logger.warning("gamma below threshold value, returning fixed step")
+    return fixed(weights, params, q_t, mu_s, cov_s, s_t, p, k, gap)

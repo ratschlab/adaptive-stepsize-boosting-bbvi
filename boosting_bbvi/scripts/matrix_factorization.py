@@ -103,7 +103,7 @@ def main(_):
 
     elbos_filename = os.path.join(outdir, 'elbos.csv')
     open(elbos_filename, 'w').close()
-    
+
     for t in range(FLAGS.n_fw_iter):
         g = tf.Graph()
         with g.as_default():
@@ -161,10 +161,20 @@ def main(_):
                 loc_s = sUV.mean().eval()
                 scale_s = sUV.stddev().eval()
 
-                if t > 0:
-                    data = {R: R_true, I: I_train}
+                data = {R: R_true, I: I_train}
+                if t == 0:
+                    gamma = 1.
+                    lipschitz_estimate = opt.adafw_linit()
+                elif FLAGS.fw_variant == 'fixed':
                     step_result = opt.fixed(weights, qUVt_components, qUV_prev,
                                             loc_s, scale_s, sUV, UV, data, t)
+                elif FLAGS.fw_variant == 'adafw':
+                    step_result = opt.adaptive_fw(
+                        weights, qUVt_components, qUV_prev, loc_s, scale_s, sUV,
+                        UV, data, t, lipschitz_estimate)
+                    step_type = step_result['step_type']
+                    if step_type == 'adaptive':
+                        lipschitz_estimate = step_result['l_estimate']
 
                 if t == 0:
                     gamma = 1.
