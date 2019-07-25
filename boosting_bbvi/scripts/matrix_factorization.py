@@ -41,7 +41,7 @@ tf.flags.DEFINE_enum(
     "base_dist", 'mvn',
     ['normal', 'laplace', 'mvnormal', 'mvlaplace', 'mvn', 'mvl'],
     'base distribution for variational approximation')
-flags.DEFINE_enum('fw_variant', 'fixed', ['fixed'],
+flags.DEFINE_enum('fw_variant', 'fixed', ['fixed', 'adafw'],
                   '[fixed (default)] The Frank-Wolfe variant to use.')
 tf.flags.DEFINE_string('datapath', 'data/chem', 'path containing data')
 
@@ -104,6 +104,14 @@ def main(_):
     elbos_filename = os.path.join(outdir, 'elbos.csv')
     open(elbos_filename, 'w').close()
 
+    # 'adafw', 'ada_afw', 'ada_pfw'
+    if FLAGS.fw_variant.startswith('ada'):
+        lipschitz_filename = os.path.join(outdir, 'lipschitz.csv')
+        open(lipschitz_filename, 'w').close()
+
+        iter_info_filename = os.path.join(outdir, 'iter_info.txt')
+        open(iter_info_filename, 'w').close()
+
     for t in range(FLAGS.n_fw_iter):
         g = tf.Graph()
         with g.as_default():
@@ -165,6 +173,7 @@ def main(_):
                 if t == 0:
                     gamma = 1.
                     lipschitz_estimate = opt.adafw_linit()
+                    step_type = 'init'
                 elif FLAGS.fw_variant == 'fixed':
                     step_result = opt.fixed(weights, qUVt_components, qUV_prev,
                                             loc_s, scale_s, sUV, UV, data, t)
@@ -206,6 +215,12 @@ def main(_):
                     scale=tf.ones([N, M]))
 
                 # CRITICISM
+                if FLAGS.fw_variant.startswith('ada'):
+                    append_to_file(lipschitz_filename, lipschitz_estimate)
+                    append_to_file(iter_info_filename, step_type)
+                    logger.info('lt = %.5f, iter_type = %s' %
+                                (lipschitz_estimate, step_type))
+
                 test_mse = ed.evaluate(
                     'mean_squared_error',
                     data={

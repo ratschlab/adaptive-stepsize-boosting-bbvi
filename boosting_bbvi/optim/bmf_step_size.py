@@ -63,7 +63,6 @@ def fixed(weights, params, q_t, mu_s, cov_s, s_t, pz, data, k, gap=None):
     def neg_elbo(q):
         elbo_loss = elboModel.KLqp({pz: q}, data)
         return elbo_loss.run()['loss']
-    print('DEBUG neg elbo', neg_elbo(q_t))
 
     return {
         'gamma': gamma,
@@ -112,7 +111,15 @@ def adaptive_fw(weights, params, q_t, mu_s, cov_s, s_t, pz, data, k, l_prev,
     if gap is None:
         ## since pz is not joint p(z, x) or target p(z|x) but only
         ## the prior, TODO 1. try pz 2. implement joint
+        # create and sample from $s_t, q_t$
         gap = 1.
+
+        #sample_q = q_t.sample([N_samples])
+        #sample_s = s_t.sample([N_samples])
+        #step_s = tf.reduce_mean(grad_elbo(q_t, pz, sample_s)).eval()
+        #step_q = tf.reduce_mean(grad_elbo(q_t, pz, sample_q)).eval()
+        #debug('step_q = %.2e, step_s = %.2e' % (step_q, step_s))
+        #gap = step_q - step_s
     logger.info('duality gap %.3e' % gap)
     if gap < 0:
         logger.warning("Duality gap is negative returning fixed step")
@@ -132,6 +139,7 @@ def adaptive_fw(weights, params, q_t, mu_s, cov_s, s_t, pz, data, k, l_prev,
         return elbo_loss.run()['loss']
 
     #f_t = -elbo(q_t, p, N_samples, return_std=False)
+    f_t = neg_elbo(q_t)
 
     debug('f(q_t) = %.3e' % (f_t))
     # return intial estimate if gap is -ve
@@ -154,17 +162,17 @@ def adaptive_fw(weights, params, q_t, mu_s, cov_s, s_t, pz, data, k, l_prev,
             new_weights.append(gamma)
             new_params = copy.copy(params)
             new_params.append({'loc': mu_s, 'scale': cov_s})
-            new_components = [
-                coreutils.base_loc_scale(
-                    FLAGS.base_dist,
-                    c['loc'],
-                    c['scale'],
-                    multivariate=is_vector) for c in new_params
-            ]
         else:
             new_weights = [1.]
             new_params = [{'loc': mu_s, 'scale': cov_s}]
-            new_components = [s_t]
+
+        new_components = [
+            coreutils.base_loc_scale(
+                FLAGS.base_dist,
+                c['loc'],
+                c['scale'],
+                multivariate=is_vector) for c in new_params
+        ]
 
         qt_new = coreutils.get_mixture(new_weights, new_components)
         #quad_bound_lhs = -elbo(qt_new, p, N_samples, return_std=False)
@@ -187,4 +195,4 @@ def adaptive_fw(weights, params, q_t, mu_s, cov_s, s_t, pz, data, k, l_prev,
 
     # gamma below MIN_GAMMA
     logger.warning("gamma below threshold value, returning fixed step")
-    return fixed(weights, params, q_t, mu_s, cov_s, s_t, p, k, gap)
+    return fixed(weights, params, q_t, mu_s, cov_s, s_t, pz, data, k, gap)
