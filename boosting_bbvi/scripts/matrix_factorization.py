@@ -13,7 +13,6 @@ import edward as ed
 import matplotlib.pyplot as plt
 import numpy as np
 import tensorflow as tf
-import scipy.io as sio
 
 from edward.models import (Normal, MultivariateNormalDiag, Mixture,
                            Categorical, ParamMixture)
@@ -24,6 +23,7 @@ import boosting_bbvi.optim.bmf_step_size as opt
 import boosting_bbvi.core.elbo as elboModel
 from boosting_bbvi.core.utils import block_diagonal, eprint, debug, append_to_file
 import boosting_bbvi.core.utils as coreutils
+from boosting_bbvi.scripts.bmf_utils import get_data, Joint
 logger = coreutils.get_logger()
 
 flags = tf.app.flags
@@ -36,47 +36,15 @@ flags.DEFINE_integer('n_fw_iter', 10, '')
 flags.DEFINE_integer('LMO_iter', 1000, '')
 flags.DEFINE_integer('seed', 0, 'The random seed to use for everything.')
 flags.DEFINE_float('mask_ratio', 0.5, 'Test train indicator matrix mask ratio')
-tf.flags.DEFINE_enum('exp', 'cbcl', ['synthetic', 'cbcl'], 'Dataset name')
 tf.flags.DEFINE_enum(
     "base_dist", 'mvn',
     ['normal', 'laplace', 'mvnormal', 'mvlaplace', 'mvn', 'mvl'],
     'base distribution for variational approximation')
 flags.DEFINE_enum('fw_variant', 'fixed', ['fixed', 'adafw'],
                   '[fixed (default)] The Frank-Wolfe variant to use.')
-tf.flags.DEFINE_string('datapath', 'data/chem', 'path containing data')
 
 ed.set_seed(FLAGS.seed)
 np.random.seed(FLAGS.seed)
-
-
-def build_toy_dataset(U, V, N, M, noise_std=0.1):
-    R = np.dot(np.transpose(U), V) + np.random.normal(
-        0, noise_std, size=(N, M))
-    return R
-
-
-def get_indicators(N, M, prob_std=0.5):
-    ind = np.random.binomial(1, prob_std, (N, M))
-    return ind
-
-
-def get_data():
-    if FLAGS.exp == 'cbcl':
-        tr = sio.loadmat(os.path.join(FLAGS.datapath, 'cbcl.mat'))['V']
-        N,M = tr.shape
-        I_train = get_indicators(N, M, FLAGS.mask_ratio)
-        I_test = 1 - I_train
-        return N, M, FLAGS.D, tr, I_train, I_test
-    elif FLAGS.exp == 'synthetic':
-        N, M, D = FLAGS.N, FLAGS.M, FLAGS.D
-        # true latent factors
-        U_true = np.random.randn(D, N)
-        V_true = np.random.randn(D, M)
-        R_true = build_toy_dataset(U_true, V_true, N, M)
-        I_train = get_indicators(N, M, FLAGS.mask_ratio)
-        I_test = 1 - I_train
-        return N, M, D, R_true, I_train, I_test
-    pass
 
 
 def main(_):
@@ -133,6 +101,8 @@ def main(_):
                     loc=tf.matmul(tf.transpose(UV[:, :N]), UV[:, N:]) * I,
                     scale=tf.ones([N, M]))
 
+                p_joint = Joint(R_true, I_train, sess, D, N, M)
+
                 # TODO build previous components and add here
                 if t == 0:
                     fw_iterates = {}
@@ -176,7 +146,7 @@ def main(_):
                     step_type = 'init'
                 elif FLAGS.fw_variant == 'fixed':
                     step_result = opt.fixed(weights, qUVt_components, qUV_prev,
-                                            loc_s, scale_s, sUV, UV, data, t)
+                                            loc_s, scale_s, sUV, p_joint, data, t)
                 elif FLAGS.fw_variant == 'adafw':
                     step_result = opt.adaptive_fw(
                         weights, qUVt_components, qUV_prev, loc_s, scale_s, sUV,

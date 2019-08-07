@@ -10,7 +10,7 @@ from edward.models import (Categorical, Dirichlet, Empirical, InverseGamma,
 from scipy.misc import logsumexp as logsumexp
 
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", ".."))
-from boosting_bbvi.optim.utils import divergence, grad_elbo, argmax_grad_dotp, elbo
+from boosting_bbvi.optim.bmf_utils import grad_kl_dotp, divergence, elbo
 from boosting_bbvi.core.utils import eprint, debug
 import boosting_bbvi.core.elbo as elboModel
 import boosting_bbvi.core.utils as coreutils
@@ -18,9 +18,6 @@ logger = coreutils.get_logger()
 
 flags = tf.app.flags
 FLAGS = flags.FLAGS
-flags.DEFINE_integer(
-    'n_monte_carlo_samples', 1000,
-    'Number of samples for approximating gradient')
 flags.DEFINE_enum('linit', 'fixed',
                   ['fixed', 'lipschitz_v2', 'lipschitz_v1'],
                   'Initialization methods versions for lipschitz constant')
@@ -36,7 +33,7 @@ flags.DEFINE_enum(
 
 MIN_GAMMA = 0.01
 
-def fixed(weights, params, q_t, mu_s, cov_s, s_t, pz, data, k, gap=None):
+def fixed(weights, params, q_t, mu_s, cov_s, s_t, p, data, k, gap=None):
     """Fixed step size.
     
     Args:
@@ -46,7 +43,7 @@ def fixed(weights, params, q_t, mu_s, cov_s, s_t, pz, data, k, gap=None):
         mu_s: [dim], mean of LMO solution s
         cov_s: [dim], cov matrix for LMO solution s
         s_t: Current atom & LMO Solution s
-        pz: latent variable distribution (UV)
+        p: joint distribution p(x, z)
         data: training data
         k: iteration number of Frank-Wolfe
         gap: Duality-Gap (if already computed)
@@ -59,6 +56,14 @@ def fixed(weights, params, q_t, mu_s, cov_s, s_t, pz, data, k, gap=None):
     new_weights.append(gamma)
     new_params = copy.copy(params)
     new_params.append({'loc': mu_s, 'scale': cov_s})
+
+    # Compute Frank-Wolfe gap
+    if gap is None:
+        step_s = grad_kl_dotp(q_t, p, s_t)
+        step_q = grad_kl_dotp(q_t, p, q_t)
+        gap = step_q - step_s
+        logger.info("gap is %.3f" % gap)
+    if gap < 0: logger.warning("Frank-Wolfe duality gap is negative")
 
     def neg_elbo(q):
         elbo_loss = elboModel.KLqp({pz: q}, data)
@@ -76,7 +81,7 @@ def adafw_linit():
     return FLAGS.linit_fixed
 
 
-def adaptive_fw(weights, params, q_t, mu_s, cov_s, s_t, pz, data, k, l_prev,
+def adaptive_fw(weights, params, q_t, mu_s, cov_s, s_t, p, data, k, l_prev,
                 gap=None):
     """Adaptive Frank-Wolfe algorithm.
     
@@ -90,7 +95,7 @@ def adaptive_fw(weights, params, q_t, mu_s, cov_s, s_t, pz, data, k, l_prev,
         mu_s: [dim], mean for LMO solution s
         cov_s: [dim], cov matrix for LMO solution s
         s_t: Current atom & LMO Solution s
-        pz: latent variable (UV) distribution (NOT JOINT)
+        p: joint distribution p(z, x)
         data: training data
         k: iteration number of Frank-Wolfe
         l_prev: previous lipschitz estimate
@@ -104,22 +109,14 @@ def adaptive_fw(weights, params, q_t, mu_s, cov_s, s_t, pz, data, k, l_prev,
     # FIXME
     is_vector = FLAGS.base_dist in ['mvnormal', 'mvlaplace']
 
-    d_t_norm = divergence(s_t, q_t, metric=FLAGS.distance_metric).eval()
+    d_t_norm = divergence(s_t, q_t, metric=FLAGS.distance_metric)
     logger.info('\ndistance norm is %.3e' % d_t_norm)
 
-    N_samples = FLAGS.n_monte_carlo_samples
     if gap is None:
-        ## since pz is not joint p(z, x) or target p(z|x) but only
-        ## the prior, TODO 1. try pz 2. implement joint
-        # create and sample from $s_t, q_t$
-        gap = 1.
-
-        #sample_q = q_t.sample([N_samples])
-        #sample_s = s_t.sample([N_samples])
-        #step_s = tf.reduce_mean(grad_elbo(q_t, pz, sample_s)).eval()
-        #step_q = tf.reduce_mean(grad_elbo(q_t, pz, sample_q)).eval()
-        #debug('step_q = %.2e, step_s = %.2e' % (step_q, step_s))
-        #gap = step_q - step_s
+        step_s = grad_kl_dotp(q_t, p, s_t)
+        step_q = grad_kl_dotp(q_t, p, q_t)
+        gap = step_q - step_s
+        logger.info("gap is %.3f" % gap)
     logger.info('duality gap %.3e' % gap)
     if gap < 0:
         logger.warning("Duality gap is negative returning fixed step")
@@ -138,8 +135,8 @@ def adaptive_fw(weights, params, q_t, mu_s, cov_s, s_t, pz, data, k, l_prev,
         elbo_loss = elboModel.KLqp({pz: q}, data)
         return elbo_loss.run()['loss']
 
-    #f_t = -elbo(q_t, p, N_samples, return_std=False)
-    f_t = neg_elbo(q_t)
+    f_t = -elbo(q_t, p)
+    #f_t = neg_elbo(q_t)
 
     debug('f(q_t) = %.3e' % (f_t))
     # return intial estimate if gap is -ve
@@ -175,8 +172,8 @@ def adaptive_fw(weights, params, q_t, mu_s, cov_s, s_t, pz, data, k, l_prev,
         ]
 
         qt_new = coreutils.get_mixture(new_weights, new_components)
-        #quad_bound_lhs = -elbo(qt_new, p, N_samples, return_std=False)
-        quad_bound_lhs = neg_elbo(qt_new)
+        quad_bound_lhs = -elbo(qt_new, p)
+        #quad_bound_lhs = neg_elbo(qt_new)
         logger.info('lt = %.3e, gamma = %.3f, f_(qt_new) = %.3e, '
                     'linear extrapolated = %.3e' % (l_t, gamma, quad_bound_lhs,
                                                     quad_bound_rhs))
@@ -195,4 +192,4 @@ def adaptive_fw(weights, params, q_t, mu_s, cov_s, s_t, pz, data, k, l_prev,
 
     # gamma below MIN_GAMMA
     logger.warning("gamma below threshold value, returning fixed step")
-    return fixed(weights, params, q_t, mu_s, cov_s, s_t, pz, data, k, gap)
+    return fixed(weights, params, q_t, mu_s, cov_s, s_t, p, data, k, gap)
