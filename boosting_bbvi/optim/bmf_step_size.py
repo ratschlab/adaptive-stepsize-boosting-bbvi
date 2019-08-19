@@ -10,7 +10,7 @@ from edward.models import (Categorical, Dirichlet, Empirical, InverseGamma,
 from scipy.misc import logsumexp as logsumexp
 
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", ".."))
-from boosting_bbvi.optim.bmf_utils import grad_kl_dotp, divergence, elbo
+from boosting_bbvi.scripts.bmf_utils import grad_kl_dotp, divergence, elbo
 from boosting_bbvi.core.utils import eprint, debug
 import boosting_bbvi.core.elbo as elboModel
 import boosting_bbvi.core.utils as coreutils
@@ -73,6 +73,7 @@ def fixed(weights, params, q_t, mu_s, cov_s, s_t, p, data, k, gap=None):
         'gamma': gamma,
         'weights': new_weights,
         'params': new_params,
+        'gap': gap,
         'step_type': 'fixed'
     }
 
@@ -116,7 +117,6 @@ def adaptive_fw(weights, params, q_t, mu_s, cov_s, s_t, p, data, k, l_prev,
         step_s = grad_kl_dotp(q_t, p, s_t)
         step_q = grad_kl_dotp(q_t, p, q_t)
         gap = step_q - step_s
-        logger.info("gap is %.3f" % gap)
     logger.info('duality gap %.3e' % gap)
     if gap < 0:
         logger.warning("Duality gap is negative returning fixed step")
@@ -136,7 +136,6 @@ def adaptive_fw(weights, params, q_t, mu_s, cov_s, s_t, p, data, k, l_prev,
         return elbo_loss.run()['loss']
 
     f_t = -elbo(q_t, p)
-    #f_t = neg_elbo(q_t)
 
     debug('f(q_t) = %.3e' % (f_t))
     # return intial estimate if gap is -ve

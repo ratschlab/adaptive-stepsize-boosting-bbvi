@@ -9,6 +9,9 @@ import sys
 import edward as ed
 import numpy as np
 import tensorflow as tf
+from edward.models import (Categorical, Dirichlet, Empirical, InverseGamma,
+                           MultivariateNormalDiag, Normal, ParamMixture,
+                           Mixture)
 import scipy.io as sio
 flags = tf.app.flags
 FLAGS = tf.flags.FLAGS
@@ -60,10 +63,9 @@ class Joint:
             R_true: full matrix
             I_train: training mask
         """
-        self.data = data
         self.n_samples = FLAGS.n_monte_carlo_samples
-        self.R = tf.constant(R_true)
-        self.I = tf.constant(I_train)
+        self.R = tf.constant(R_true, dtype=tf.float32)
+        self.I = tf.constant(I_train, dtype=tf.float32)
         self.D = D
         self.N = N
         self.M = M
@@ -76,6 +78,23 @@ class Joint:
 
         self.prior_UV = Normal(loc=mean_uv, scale=scale_uv) # (D, N + M)
 
+    def log_lik(self, sample_uv):
+        """
+        Args:
+            sample_uv: single (D, (N + M)) samples from qUV
+        Returns:
+            tensor scalar of log likelihood
+        """
+        # constructed matrix dist. R ~ N(U'V, 1)
+        pR = Normal(
+            loc=tf.matmul(tf.transpose(sample_uv[:, :self.N]), sample_uv[:, self.N:]),
+            scale=tf.ones([self.N, self.M]))
+        full_log_likelihood = pR.log_prob(self.R)
+        train_log_likelihood = pR * self.I
+        log_lik = tf.reduce_sum(train_log_likelihood)
+        return log_lik
+
+
     def log_prob(self, sample_uv):
         """
         Args:
@@ -83,15 +102,9 @@ class Joint:
         Returns:
             tensor scalar of log_prob
         """
-        # constructed matrix dist. R ~ N(U'V, 1)
-        qR = Normal(
-            loc=tf.matmul(tf.transpose(sample_uv[:, :self.N]), sample_uv[:, self.N:]),
-            scale=tf.ones([self.N, self.M]))
-        full_log_likelihood = qR.log_prob(self.R)
-        train_log_likelihood = qR * self.I
         prior_batch = self.prior_UV.log_prob(sample_uv)
         prior = tf.reduce_sum(prior_batch)
-        ll = tf.reduce_sum(train_log_likelihood)
+        ll = self.log_lik(sample_uv)
         p_joint = prior + ll
         # return self.sess.run(p_joint)
         return p_joint
@@ -102,6 +115,22 @@ class Joint:
         """
         raise NotImplementedError('what to do here? just run in a loop?')
 
+
+def log_likelihood(qR, R, I, sess, D, N, M):
+    """
+        qR: posterior distribution
+        R: Data matrix
+        I: mask for train/test
+        sess: tf session
+        D, N, M: dimensions
+    """
+    p_joint = Joint(R, I, sess, D, N, M)
+    theta = qR.sample()
+    log_lik_evals = [
+        Joint.log_lik(theta) for _ in range(FLAGS.n_monte_carlo_samples)
+    ]
+    ll = np.mean(elbo_evals)
+    return ll
 
 def grad_kl_dotp(q, p, p_theta):
     """Compute dot product of gradient of KL-divergence/-ELBO w.r.t p_theta.

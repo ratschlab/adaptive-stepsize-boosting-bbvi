@@ -23,7 +23,7 @@ import boosting_bbvi.optim.bmf_step_size as opt
 import boosting_bbvi.core.elbo as elboModel
 from boosting_bbvi.core.utils import block_diagonal, eprint, debug, append_to_file
 import boosting_bbvi.core.utils as coreutils
-from boosting_bbvi.scripts.bmf_utils import get_data, Joint
+from boosting_bbvi.scripts.bmf_utils import get_data, Joint, elbo
 logger = coreutils.get_logger()
 
 flags = tf.app.flags
@@ -72,6 +72,12 @@ def main(_):
     elbos_filename = os.path.join(outdir, 'elbos.csv')
     open(elbos_filename, 'w').close()
 
+    gap_filename = os.path.join(outdir, 'gap.csv')
+    open(gap_filename, 'w').close()
+
+    step_filename = os.path.join(outdir, 'steps.csv')
+    open(step_filename, 'w').close()
+
     # 'adafw', 'ada_afw', 'ada_pfw'
     if FLAGS.fw_variant.startswith('ada'):
         lipschitz_filename = os.path.join(outdir, 'lipschitz.csv')
@@ -97,9 +103,13 @@ def main(_):
                      tf.zeros([D, M])], axis=1)
 
                 UV = Normal(loc=mean_uv, scale=scale_uv)
+                #R = Normal(
+                #    loc=tf.matmul(tf.transpose(UV[:, :N]), UV[:, N:]) * I,
+                #    scale=tf.ones([N, M]))
                 R = Normal(
-                    loc=tf.matmul(tf.transpose(UV[:, :N]), UV[:, N:]) * I,
-                    scale=tf.ones([N, M]))
+                    loc=tf.matmul(tf.transpose(UV[:, :N]), UV[:, N:]),
+                    scale=tf.ones([N, M]))  # generator dist. for matrix
+                R_mask = R * I  # generated masked matrix
 
                 p_joint = Joint(R_true, I_train, sess, D, N, M)
 
@@ -132,7 +142,8 @@ def main(_):
 
                 sUV = Normal(loc=mean_suv, scale=scale_suv)
 
-                inference = relbo.KLqp({UV: sUV}, data={R: R_true, I: I_train},
+                #inference = relbo.KLqp({UV: sUV}, data={R: R_true, I: I_train},
+                inference = relbo.KLqp({UV: sUV}, data={R_mask: R_true, I: I_train},
                                        fw_iterates=fw_iterates, fw_iter=t)
                 inference.run(n_iter=FLAGS.LMO_iter)
 
@@ -179,10 +190,22 @@ def main(_):
 
                 qUV_new = coreutils.get_mixture(weights, new_components)
 
-                qR = Normal(
-                    loc=tf.matmul(
-                        tf.transpose(qUV_new[:, :N]), qUV_new[:, N:]),
-                    scale=tf.ones([N, M]))
+                #qR = Normal(
+                #    loc=tf.matmul(
+                #        tf.transpose(qUV_new[:, :N]), qUV_new[:, N:]),
+                #    scale=tf.ones([N, M]))
+                #qR = ed.copy(R, {UV: qUV_new})
+                cR = ed.copy(R_mask, {UV: qUV_new}) # reconstructed matrix
+
+
+                logger.info('iter %d, gamma %.4f' % (t, gamma))
+                append_to_file(step_filename, gamma)
+
+                if t > 0:
+                    gap_t = step_result['gap']
+                    logger.info('iter %d, gap %.4f' % (t, gap_t))
+                    append_to_file(gap_filename, gap_t)
+
 
                 # CRITICISM
                 if FLAGS.fw_variant.startswith('ada'):
@@ -194,27 +217,32 @@ def main(_):
                 test_mse = ed.evaluate(
                     'mean_squared_error',
                     data={
-                        qR: R_true,
+                        cR: R_true,
                         I: I_test.astype(bool)
                     })
                 logger.info("iter %d ed test mse %.5f" % (t, test_mse))
                 append_to_file(mse_test_filename, test_mse)
 
-                test_ll = ed.evaluate(
-                    'log_lik',
-                    data={
-                        qR: R_true.astype('float32'),
-                        I: I_test.astype(bool)
-                    })
-                logger.info("tier %d ed test ll %.5f" % (t, test_ll))
-                append_to_file(ll_test_filename, test_ll)
+                ## ll needs qR needs to be a distribution
+                ## can't use directly, need to calculate directly
+                #test_ll = ed.evaluate(
+                #    'log_lik',
+                #    data={
+                #        qR: R_true.astype('float32'),
+                #        I: I_test.astype(bool)
+                #    })
+                #logger.info("tier %d ed test ll %.5f" % (t, test_ll))
+                #append_to_file(ll_test_filename, test_ll)
 
+                # elbo_loss might be meaningless
                 elbo_loss = elboModel.KLqp({UV: qUV_new}, data={R: R_true, I: I_train})
+                elbo_t = elbo(qUV_new, p_joint)
                 res_update = elbo_loss.run()
-                logger.info('iter %d -elbo loss %.2f' % (t, res_update['loss']))
-                append_to_file(elbos_filename, -res_update['loss'])
+                logger.info('iter %d -elbo loss %.2f or %.2f' % (t, res_update['loss'], elbo_t))
+                append_to_file(elbos_filename, "%f,%f" % (elbo_t, res_update['loss']))
 
                 sess.close()
+        tf.reset_default_graph()
 
 
 if __name__ == "__main__":
