@@ -255,7 +255,7 @@ def pad_or_crop(a, n):
     return a
 
 
-def main():
+def blr():
     run_names = [
         d for d in os.listdir(args.datapath)
         if os.path.isdir(os.path.join(args.datapath, d))
@@ -349,6 +349,84 @@ def main():
     pass
 
 
+def bmf():
+    """Plot Bayesian Matrix Factorization data"""
+    run_names = [
+        d for d in os.listdir(args.datapath)
+        if os.path.isdir(os.path.join(args.datapath, d))
+    ]
+    run_paths = [os.path.join(args.datapath, d) for d in run_names]
+
+    df = pd.DataFrame()
+    cnt = 0
+    runs_df = []
+    seeds_used = set()
+    for nr, dr in zip(run_names, run_paths):
+        param_dict = parse_log(nr, os.path.join(dr, 'run.log'))
+        if param_dict['fw_variant'] not in args.all_var:
+            continue
+        seeds_used.add(param_dict.get('seed', 0))
+
+        mse_test_filename = os.path.join(dr, 'mse_test.csv')
+        with open(mse_test_filename, 'r') as f:
+            mse_tests = [float(r.strip()) for r in f.readlines()]
+
+        n_fw_iter = args.n_fw_iter
+
+        elbos_filename = os.path.join(dr, 'elbos.csv')
+        with open(elbos_filename, 'r') as f:
+            elbos = [float(e.split(',')[0]) for e in f.readlines()]
+
+        gap_filename = os.path.join(dr, 'gap.csv')
+        with open(gap_filename, 'r') as f:
+            gaps = [float(r.strip()) for r in f.readlines()]
+
+        iter_info_filename = os.path.join(dr, 'iter_info.txt')
+        if os.path.isfile(iter_info_filename):
+            with open(iter_info_filename, 'r') as f:
+                iter_types = [r.strip() for r in f.readlines()]
+        else:
+            iter_types = ['fixed'] * n_fw_iter
+
+        gamma_filename = os.path.join(dr, 'steps.csv')
+        with open(gamma_filename, 'r') as f:
+            gammas = [float(r.strip()) for r in f.readlines()]
+
+        mse_tests = pad_or_crop(mse_tests, n_fw_iter)
+        elbos = pad_or_crop(elbos, n_fw_iter)
+        gaps = pad_or_crop(gaps, n_fw_iter)
+        iter_types = pad_or_crop(iter_types, n_fw_iter)
+        data = {
+            'mse_test': mse_tests,
+            'elbo': elbos,
+            'gap': gaps,
+            'iter_type': iter_types,
+            'fw_iter': list(range(n_fw_iter)),
+            'fw_variant': [param_dict['fw_variant']] * n_fw_iter,
+            'seed': [param_dict['seed']] * n_fw_iter,
+            'linit_fixed': [param_dict['linit_fixed']] * n_fw_iter,
+            'tau': [param_dict['exp_adafw']] * n_fw_iter,
+            'eta': [param_dict['damping_adafw']] * n_fw_iter
+        }
+        run_df = pd.DataFrame(data)
+        runs_df.append(run_df)
+
+        cnt += 1
+
+    debug(cnt, " runs processed")
+    df = pd.concat(runs_df)
+    #debug(df.head())
+
+    # TODO plotting part, should be moved to different function
+    #fix, ax = plt.subplots()
+    #ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+    ax = sns.lineplot(x='fw_iter', y=args.metric, hue='fw_variant', data=df)
+    ax.set_yscale('log')
+
+    plt.show()
+    pass
+
+
 def info():
     run_names = [
         d for d in os.listdir(args.datapath)
@@ -364,29 +442,43 @@ def info():
     fixed_n, adafw_n, ada_afw_n, ada_pfw_n  = [], [], [], []
     for dn, dr in zip(run_names, run_paths):
         if dn.startswith('fixed'):
-            fixed_n.append(get_n_lines(os.path.join(dr, 'roc.csv')))
+            fixed_n.append(
+                get_n_lines(os.path.join(dr, '{}.csv'.format(args.metric))))
         elif dn.startswith('adafw'):
-            adafw_n.append(get_n_lines(os.path.join(dr, 'roc.csv')))
+            adafw_n.append(
+                get_n_lines(os.path.join(dr, '{}.csv'.format(args.metric))))
         elif dn.startswith('ada_afw'):
-            ada_afw_n.append(get_n_lines(os.path.join(dr, 'roc.csv')))
+            ada_afw_n.append(
+                get_n_lines(os.path.join(dr, '{}.csv'.format(args.metric))))
         elif dn.startswith('ada_pfw'):
-            ada_pfw_n.append(get_n_lines(os.path.join(dr, 'roc.csv')))
+            ada_pfw_n.append(
+                get_n_lines(os.path.join(dr, '{}.csv'.format(args.metric))))
 
-    fixed_n = np.asarray(fixed_n)
-    print('fixed: median run length %d, number of runs %d' %
-          (np.median(fixed_n), len(fixed_n)))
-    adafw_n = np.asarray(adafw_n)
-    print('adafw: median run length %d, number of runs %d' %
-          (np.median(adafw_n), len(adafw_n)))
-    ada_afw_n = np.asarray(ada_afw_n)
-    print('ada_afw: median run length %d, number of runs %d' %
-          (np.median(ada_afw_n), len(ada_afw_n)))
-    ada_pfw_n = np.asarray(ada_pfw_n)
-    print('ada_pfw: median run length %d, number of runs %d' %
-          (np.median(ada_pfw_n), len(ada_pfw_n)))
+    print('fixed: number of runs %d' % (len(fixed_n)))
+    if fixed_n:
+        fixed_n = np.asarray(fixed_n)
+        print('fixed: median run length %d, min %d' % (np.median(fixed_n),
+                                                       np.min(fixed_n)))
+
+    print('adafw: number of runs %d' % (len(adafw_n)))
+    if adafw_n:
+        adafw_n = np.asarray(adafw_n)
+        print('adafw: median run length %d, min %d' % (np.median(adafw_n),
+                                                       np.min(adafw_n)))
+
+    print('ada_afw: number of runs %d' % (len(ada_afw_n)))
+    if ada_afw_n:
+        ada_afw_n = np.asarray(ada_afw_n)
+        print('ada_afw: median run length %d' % (np.median(ada_afw_n)))
+
+    print('ada_pfw: number of runs %d' % (len(ada_pfw_n)))
+    if ada_pfw_n:
+        ada_pfw_n = np.asarray(ada_pfw_n)
+        print('ada_pfw: median run length %d' % (np.median(ada_pfw_n)))
 
 
 if __name__ == "__main__":
     args.all_var = args.adaptive_var + ['fixed']
     #info()
-    main()
+    #blr()
+    bmf()

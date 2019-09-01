@@ -5,7 +5,8 @@ Usage:
     python plot_losses.py \
             --elbos_files=/path/elbos.csv,/path2/elbos.csv \
             --relbos_files=/path/relbos.csv,/path2/relbos.csv \
-            --kl_files=/path/relbos.csv \
+            --kl_files=/path/kl.csv \
+            --mse_files=/path/mse_test.csv,/path2/mse_test.csv \
             --times_files=/path/times.csv,/path2/times.csv \
             --labels=variant1,variant2
 """
@@ -38,8 +39,10 @@ flags.DEFINE_string('xlabel', 'iterations', '')
 flags.DEFINE_list('elbos_files', [], '')
 flags.DEFINE_list('kl_files', [], '')
 flags.DEFINE_list('relbos_files', [], '')
+flags.DEFINE_list('mse_files', [], '')
 flags.DEFINE_list('times_files', [], '')
 flags.DEFINE_float('smoothingWt', 0., 'smoothness for the plot')
+flags.DEFINE_integer('start', 0, 'starting iteration')
 
 def resmoothDataset(x, alpha=0.6):
     """Apply linear filter
@@ -49,6 +52,7 @@ def resmoothDataset(x, alpha=0.6):
     # https://github.com/tensorflow/tensorboard/blob/f801ebf1f9fbfe2baee1ddd65714d0bccc640fb1/tensorboard/plugins/scalar/vz_line_chart/vz-line-chart.ts#L55
     # Implementation:
     # https://github.com/tensorflow/tensorboard/blob/f801ebf1f9fbfe2baee1ddd65714d0bccc640fb1/tensorboard/plugins/scalar/vz_line_chart/vz-line-chart.ts#L704
+    #x = x[FLAGS.start:]
     last = x[0]
     x_smoothed = []
     for e in x:
@@ -64,7 +68,11 @@ def plot_elbos(ax):
         with open(fname, 'r') as f:
             elbos = [float(e.split(',')[0]) for e in f.readlines()]
             elbos = resmoothDataset(elbos, alpha=FLAGS.smoothingWt)
+            print('Maximum elbo for %s is %.3f at iter %d' % (FLAGS.labels[i],
+                                                              max(elbos),
+                                                              np.argmax(elbos)))
         ax.plot(elbos, label=FLAGS.labels[i])
+        ax.set_xlim(xmin=FLAGS.start)
         #plt.semilogy(elbos, label=FLAGS.labels[i])
     plt.ylabel('elbo')
     #plt.legend(loc='lower right')
@@ -91,6 +99,20 @@ def plot_kl(ax):
     #plt.legend(loc='lower right')
 
 
+def plot_mse(ax):
+    ax.set_yscale("log")
+    for i, fname in enumerate(FLAGS.mse_files):
+        with open(fname, 'r') as f:
+            mse = list(map(float, f.readlines()))
+            mse = resmoothDataset(mse, alpha=FLAGS.smoothingWt)
+            print('Minimum mse for %s is %.3f at iter %d' % (FLAGS.labels[i],
+                                                             min(mse),
+                                                             np.argmin(mse)))
+        ax.plot(mse, label=FLAGS.labels[i])
+        ax.set_xlim(xmin=FLAGS.start)
+    plt.ylabel('mse')
+
+
 def plot_times(ax):
     for i, fname in enumerate(FLAGS.times_files):
         with open(fname, 'r') as f:
@@ -101,11 +123,13 @@ def plot_times(ax):
 
 def main(argv):
     del argv
-    fig, axes = plt.subplots(nrows=2, ncols=2)
+    fig, axes = plt.subplots(nrows=1, ncols=2)
     ax = plt.subplot(121)
     plot_elbos(ax)
     ax = plt.subplot(122)
-    plot_kl(ax)
+    plot_mse(ax)
+    #ax = plt.subplot(122)
+    #plot_kl(ax)
     #ax = plt.subplot(223)
     #plot_relbos(ax)
     #ax = plt.subplot(224)
