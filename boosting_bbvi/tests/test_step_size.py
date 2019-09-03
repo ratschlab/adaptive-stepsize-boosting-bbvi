@@ -33,6 +33,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), "..", ".."))
 import boosting_bbvi.optim.fw_step_size as opt
 import boosting_bbvi.scripts.mixture_model_relbo as mixture_model_relbo
 import boosting_bbvi.core.utils as coreutils
+from boosting_bbvi.core.utils import eprint, debug, append_to_file
 logger = coreutils.get_logger()
 
 flags = tf.app.flags
@@ -147,6 +148,7 @@ def test_adaptive_gamma():
     pi = np.array([0.2, 0.5, 0.3]).astype(np.float32)
     mus = [[2.], [-1.], [0.]]
     stds = [[.6], [.4], [0.5]]
+    outfile = os.path.join(FLAGS.outdir, 'gamma.csv')
     g = tf.Graph()
     with g.as_default():
         sess = tf.InteractiveSession()
@@ -177,18 +179,32 @@ def test_adaptive_gamma():
                 loc=tf.convert_to_tensor(mus[2], dtype=tf.float32),
                 scale_diag=tf.convert_to_tensor(stds[2], dtype=tf.float32))
 
-            gamma = opt.adaptive_fw(
-                weights=pi[:2],
-                locs=mus[:2],
-                diags=stds[:2],
-                q_t=qt,
-                mu_s=mus[2],
-                cov_s=stds[2],
-                s_t=st,
-                p=p,
-                k=FLAGS.init_k,
-                l_prev=opt.adafw_linit(qt, p),
-                return_gamma=True)
+            if FLAGS.fw_variant == "line_search":
+                gamma = opt.line_search_dkl(pi[:2], mus[:2], stds[:2], qt, mus[2],
+                                            stds[2], st, p, FLAGS.init_k,
+                                            return_gamma=True)
+                # seed, n_line_search_iter, n_monte_carlo_samples, b, gamma
+                append_to_file(outfile, "%d,%d,%d,%d,%f" %
+                               (FLAGS.seed, FLAGS.n_line_search_iter,
+                                FLAGS.n_monte_carlo_samples, 1, gamma))
+            elif FLAGS.fw_variant == "adafw":
+                gamma = opt.adaptive_fw(
+                    weights=pi[:2],
+                    locs=mus[:2],
+                    diags=stds[:2],
+                    q_t=qt,
+                    mu_s=mus[2],
+                    cov_s=stds[2],
+                    s_t=st,
+                    p=p,
+                    k=FLAGS.init_k,
+                    l_prev=opt.adafw_linit(qt, p),
+                    return_gamma=True)
+                # seed, n_monte_carlo_samples, eta, tau, linit, gamma
+                append_to_file(outfile, "%d,%d,%f,%f,%f,%f" %
+                               (FLAGS.seed, FLAGS.n_monte_carlo_samples,
+                                FLAGS.damping_adafw, FLAGS.exp_adafw,
+                                FLAGS.linit_fixed, gamma))
     print_err(pi[2], gamma)
 
 
@@ -196,6 +212,7 @@ def test_exact_gamma():
     pi = mixture_model_relbo.pi
     mus = mixture_model_relbo.mus
     stds = mixture_model_relbo.stds
+    outfile = os.path.join(FLAGS.outdir, 'gamma.csv')
     g = tf.Graph()
     with g.as_default():
         tf.set_random_seed(FLAGS.seed)
@@ -229,6 +246,10 @@ def test_exact_gamma():
                 gamma = opt.line_search_dkl(weights, locs, diags, qt, mus[1],
                                             stds[1], s, p, FLAGS.init_k,
                                             return_gamma=True)
+                # seed, n_line_search_iter, n_monte_carlo_samples, b, gamma
+                append_to_file(outfile, "%d,%d,%d,%d,%f" %
+                               (FLAGS.seed, FLAGS.n_line_search_iter,
+                                FLAGS.n_monte_carlo_samples, 1, gamma))
             elif FLAGS.fw_variant == "adafw":
                 gamma = opt.adaptive_fw(
                     weights=weights,
@@ -242,12 +263,17 @@ def test_exact_gamma():
                     k=FLAGS.init_k,
                     l_prev=1.,
                     return_gamma=True)
+                # seed, n_monte_carlo_samples, eta, tau, linit, gamma
+                append_to_file(outfile, "%d,%d,%f,%f,%f,%f" %
+                               (FLAGS.seed, FLAGS.n_monte_carlo_samples,
+                                FLAGS.damping_adafw, FLAGS.exp_adafw,
+                                FLAGS.linit_fixed, gamma))
             else:
                 raise NotImplementedError('other variants not tested yet.')
     print_err(pi[0][1], gamma)
 
 def main(argv):
-    test_exact_gamma()
+    #test_exact_gamma()
     test_adaptive_gamma()
     #plot_objective()
 

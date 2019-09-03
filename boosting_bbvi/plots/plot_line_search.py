@@ -122,6 +122,21 @@ def main():
         ax.savefig(outname)
 
 
+def plot_gamma_var(out_line_search, out_adafw):
+    line_search_df = pd.read_csv(out_line_search)
+    line_search_df['fw_variant'] = ['line_search'] * len(line_search_df.index)
+    line_search_df_no_hp = line_search_df.filter(
+        ['seed', 'fw_variant', 'gamma'], axis=1)
+    adafw_df = pd.read_csv(out_adafw)
+    adafw_df['fw_variant'] = ['adafw'] * len(adafw_df.index)
+    adafw_df_no_hp = adafw_df.filter(['seed', 'fw_variant', 'gamma'], axis=1)
+    df = pd.concat((line_search_df_no_hp, adafw_df_no_hp))
+    ax = sns.scatterplot(y='gamma', x='fw_variant', data=df)
+    plt.show()
+
+
 if __name__ == "__main__":
     FLAGS(sys.argv)
-    main()
+    #main()
+    # runs[0] is for line search, runs[1] is for adaptive
+    plot_gamma_var(FLAGS.runs[0], FLAGS.runs[1])
