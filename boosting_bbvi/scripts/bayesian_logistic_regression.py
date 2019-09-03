@@ -51,7 +51,7 @@ flags.DEFINE_integer('LMO_iter', 1000, '')
 flags.DEFINE_enum(
     'fw_variant', 'fixed',
     ['fixed', 'line_search', 'fc', 'adafw', 'ada_afw', 'ada_pfw'],
-    '[fixed (default), line_search, fc] The Frank-Wolfe variant to use.')
+    'The Frank-Wolfe variant to use.')
 flags.DEFINE_enum('iter0', 'vi', ['vi', 'random'],
                   '1st component a random distribution or from vi')
 ed.set_seed(FLAGS.seed)
@@ -238,6 +238,14 @@ def main(_):
                     step_type = step_result['step_type']
                     if step_type in ['adaptive', 'away', 'drop']:
                         lipschitz_estimate = step_result['l_estimate']
+                elif FLAGS.fw_variant == 'line_search':
+                    start_step_time = time.time()
+                    step_result = opt.line_search_dkl(weights, q_params,
+                                                      qtw_prev, loc_s, scale_s,
+                                                      s, p_joint, t)
+                    end_step_time = time.time()
+                    total_time += float(end_step_time - start_step_time)
+                    step_type = step_result['step_type']
                 else:
                     raise NotImplementedError(
                         'Step size variant %s not implemented' %

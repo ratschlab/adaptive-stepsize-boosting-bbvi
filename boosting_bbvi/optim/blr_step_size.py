@@ -133,7 +133,6 @@ def adaptive_fw(weights, params, q_t, mu_s, cov_s, s_t, p, k, l_prev,
         sample_s = s_t.sample([N_samples])
         step_s = tf.reduce_mean(grad_elbo(q_t, p, sample_s)).eval()
         step_q = tf.reduce_mean(grad_elbo(q_t, p, sample_q)).eval()
-        debug('step_q = %.2e, step_s = %.2e' % (step_q, step_s))
         gap = step_q - step_s
     logger.info('duality gap %.3e' % gap)
     if gap < 0:
@@ -431,3 +430,81 @@ def adaptive_afw(weights, params, q_t, mu_s, cov_s, s_t, p, k, l_prev):
     # gamma below MIN_GAMMA
     logger.warning("gamma below threshold value, returning fixed step")
     return fixed(weights, params, q_t, mu_s, cov_s, s_t, p, k, gap)
+
+
+def line_search_dkl(weights, params, q_t, mu_s, cov_s, s_t, p, k, gap=None):
+    """Performs line search for the best step size gamma.
+    
+    Uses gradient ascent to find gamma that minimizes
+    ELBO(q_t + gamma (s - q_t) || p)
+    
+    Args:
+        weights: [k], weights of mixture components of q_t
+        params: list containing dictionary of mixture params ('mu', 'scale')
+        q_t: current mixture iterate q_t
+        mu_s: [dim], mean for LMO Solution s
+        cov_s: [dim], cov matrix for LMO solution s
+        s_t: Current atom & LMO Solution s
+        p: edward.model, target distribution p
+        k: iteration number of Frank-Wolfe
+    Returns:
+        a dictionary containing gamma, new weights, new parameters
+        lipschitz estimate, duality gap of current iterate
+        and step information
+    """
+    # FIXME
+    is_vector = FLAGS.base_dist in ['mvnormal', 'mvlaplace']
+
+    N_samples = FLAGS.n_monte_carlo_samples
+    # sample from $q_t$ and s
+    sample_q = q_t.sample([N_samples])
+    sample_s = s_t.sample([N_samples])
+
+    if gap is None:
+        # create and sample from $s_t, q_t$
+        sample_q = q_t.sample([N_samples])
+        sample_s = s_t.sample([N_samples])
+        step_s = tf.reduce_mean(grad_elbo(q_t, p, sample_s)).eval()
+        step_q = tf.reduce_mean(grad_elbo(q_t, p, sample_q)).eval()
+        gap = step_q - step_s
+    logger.info('duality gap %.3e' % gap)
+    if gap < 0:
+        logger.warning("Duality gap is negative.")
+
+    # initialize $\gamma$
+    gamma = 2. / (k + 2.)
+    n_steps = FLAGS.n_line_search_iter
+    prog_bar = ed.util.Progbar(n_steps)
+    # storing gradients for analysis
+    grad_gamma = []
+    for it in range(n_steps):
+        print("line_search iter %d, %.5f" % (it, gamma))
+        new_weights = copy.copy(weights)
+        new_weights = [(1. - gamma) * w for w in new_weights]
+        new_weights.append(gamma)
+        new_params = copy.copy(params)
+        new_params.append({'loc': mu_s, 'scale': cov_s})
+        new_components = [
+            coreutils.base_loc_scale(
+                FLAGS.base_dist,
+                c['loc'],
+                c['scale'],
+                multivariate=is_vector) for c in new_params
+        ]
+        qt_new = coreutils.get_mixture(new_weights, new_components)
+        step_s = tf.reduce_mean(grad_elbo(qt_new, p, sample_s)).eval()
+        step_q = tf.reduce_mean(grad_elbo(qt_new, p, sample_q)).eval()
+        # Gradient descent step size decreasing as $\frac{1}{it + 1}$
+        gamma = gamma - 0.1 * (step_s - step_q) / (it + 1.)
+        gap = step_q - step_s
+        # Projecting it back to [0, 1]
+        if gamma >= 1 or gamma <= 0:
+            gamma = max(min(gamma, 1.), 0.)
+            break
+    return {
+        'gamma': gamma,
+        'n_samples': N_samples,
+        'weights': new_weights,
+        'params': new_params,
+        'step_type': 'line_search'
+    }
