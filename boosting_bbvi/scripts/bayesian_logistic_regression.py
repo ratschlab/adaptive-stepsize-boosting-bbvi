@@ -188,7 +188,8 @@ def main(_):
                                         fw_iter=t)
                     inference.run(n_iter=FLAGS.LMO_iter)
                 inference_time_end = time.time()
-                total_time += float(inference_time_end - inference_time_start)
+                # compute only step size selection time
+                #total_time += float(inference_time_end - inference_time_start)
 
                 loc_s = s.mean().eval()
                 scale_s = s.stddev().eval()

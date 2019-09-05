@@ -27,8 +27,9 @@ flags.DEFINE_integer(
 flags.DEFINE_enum('linit', 'fixed',
                   ['fixed', 'lipschitz_v2', 'lipschitz_v1'],
                   'Initialization methods versions for lipschitz constant')
-flags.DEFINE_float('linit_fixed', 0.001,
-                   'Fixed initial estimate of Lipschitz constant')
+flags.DEFINE_float('linit_fixed', 0.01,
+                   'Fixed initial estimate of Lipschitz constant (adafw)'
+                   'Initial step size of Line Search')
 flags.DEFINE_integer('adafw_MAXITER', 10,
                      'Maximum iterations of adaptive fw L estimation')
 flags.DEFINE_float('damping_adafw', 0.99, 'Damping constant')
@@ -473,11 +474,7 @@ def line_search_dkl(weights, params, q_t, mu_s, cov_s, s_t, p, k, gap=None):
 
     # initialize $\gamma$
     gamma = 2. / (k + 2.)
-    n_steps = FLAGS.n_line_search_iter
-    prog_bar = ed.util.Progbar(n_steps)
-    # storing gradients for analysis
-    grad_gamma = []
-    for it in range(n_steps):
+    for it in range(FLAGS.n_line_search_iter):
         print("line_search iter %d, %.5f" % (it, gamma))
         new_weights = copy.copy(weights)
         new_weights = [(1. - gamma) * w for w in new_weights]
@@ -494,17 +491,24 @@ def line_search_dkl(weights, params, q_t, mu_s, cov_s, s_t, p, k, gap=None):
         qt_new = coreutils.get_mixture(new_weights, new_components)
         step_s = tf.reduce_mean(grad_elbo(qt_new, p, sample_s)).eval()
         step_q = tf.reduce_mean(grad_elbo(qt_new, p, sample_q)).eval()
-        # Gradient descent step size decreasing as $\frac{1}{it + 1}$
-        gamma = gamma - 0.1 * (step_s - step_q) / (it + 1.)
         gap = step_q - step_s
+        # Gradient descent step size decreasing as $\frac{1}{it + 1}$
+        gamma_prime = gamma - FLAGS.linit_fixed * (step_s - step_q) / (it + 1.)
         # Projecting it back to [0, 1]
-        if gamma >= 1 or gamma <= 0:
-            gamma = max(min(gamma, 1.), 0.)
+        if gamma_prime >= 1 or gamma_prime <= 0:
+            gamma_prime = max(min(gamma_prime, 1.), 0.)
+
+        if np.abs(gamma - gamma_prime) < 1e-6:
+            gamma = gamma_prime
             break
+
+        gamma = gamma_prime
+
     return {
         'gamma': gamma,
         'n_samples': N_samples,
         'weights': new_weights,
         'params': new_params,
-        'step_type': 'line_search'
+        'step_type': 'line_search',
+        'gap': gap
     }
