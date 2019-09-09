@@ -6,6 +6,7 @@ Follows the Edward example:-
 https://github.com/blei-lab/edward/blob/master/examples/probabilistic_matrix_factorization.py
 """
 import os, sys
+import time
 #import matplotlib
 #matplotlib.use('Agg')
 
@@ -23,7 +24,7 @@ import boosting_bbvi.optim.bmf_step_size as opt
 import boosting_bbvi.core.elbo as elboModel
 from boosting_bbvi.core.utils import block_diagonal, eprint, debug, append_to_file
 import boosting_bbvi.core.utils as coreutils
-from boosting_bbvi.scripts.bmf_utils import get_data, Joint, elbo
+from boosting_bbvi.scripts.bmf_utils import get_data, Joint, elbo, log_likelihood
 logger = coreutils.get_logger()
 
 flags = tf.app.flags
@@ -37,10 +38,11 @@ flags.DEFINE_integer('LMO_iter', 1000, '')
 flags.DEFINE_integer('seed', 0, 'The random seed to use for everything.')
 flags.DEFINE_float('mask_ratio', 0.5, 'Test train indicator matrix mask ratio')
 tf.flags.DEFINE_enum(
-    "base_dist", 'mvn',
-    ['normal', 'laplace', 'mvnormal', 'mvlaplace', 'mvn', 'mvl'],
+    "base_dist", 'mvn0',
+    ['normal', 'laplace', 'mvnormal', 'mvlaplace', 'mvn', 'mvl', 'mvn0'],
     'base distribution for variational approximation')
-flags.DEFINE_enum('fw_variant', 'fixed', ['fixed', 'adafw'],
+flags.DEFINE_enum('fw_variant', 'fixed',
+                  ['fixed', 'adafw', 'ada_pfw', 'ada_afw', 'line_search'],
                   '[fixed (default)] The Frank-Wolfe variant to use.')
 
 ed.set_seed(FLAGS.seed)
@@ -53,13 +55,16 @@ def main(_):
     os.makedirs(outdir, exist_ok=True)
 
     N, M, D, R_true, I_train, I_test = get_data()
+    debug('N, M, D', N, M, D)
 
     # Solution components
     weights, qUVt_components = [], []
 
     # Metrics to log
     # TODO replace it with file logging
-    #mses, test_mses, test_lls = [], [], []
+    times_filename = os.path.join(outdir, 'times.csv')
+    open(times_filename, 'w').close()
+
     mse_train_filename = os.path.join(outdir, 'mse_train.csv')
     open(mse_train_filename, 'w').close()
 
@@ -68,6 +73,9 @@ def main(_):
 
     ll_test_filename = os.path.join(outdir, 'll_test.csv')
     open(ll_test_filename, 'w').close()
+
+    ll_train_filename = os.path.join(outdir, 'll_train.csv')
+    open(ll_train_filename, 'w').close()
 
     elbos_filename = os.path.join(outdir, 'elbos.csv')
     open(elbos_filename, 'w').close()
@@ -103,9 +111,6 @@ def main(_):
                      tf.zeros([D, M])], axis=1)
 
                 UV = Normal(loc=mean_uv, scale=scale_uv)
-                #R = Normal(
-                #    loc=tf.matmul(tf.transpose(UV[:, :N]), UV[:, N:]) * I,
-                #    scale=tf.ones([N, M]))
                 R = Normal(
                     loc=tf.matmul(tf.transpose(UV[:, :N]), UV[:, N:]),
                     scale=tf.ones([N, M]))  # generator dist. for matrix
@@ -120,7 +125,7 @@ def main(_):
                     # Current solution
                     prev_components = [
                         coreutils.base_loc_scale(
-                            'mvn',
+                            'mvn0',
                             c['loc'],
                             c['scale'],
                             multivariate=False) for c in qUVt_components
@@ -149,40 +154,82 @@ def main(_):
 
                 loc_s = sUV.mean().eval()
                 scale_s = sUV.stddev().eval()
+                # sUV is batched distrbution, there are issues making
+                # Mixture with batch distributions. mvn0
+                # with event size (D, N + M) and batch size ()
+                # NOTE log_prob(sample) still returns tensor
+                # mvn and multivariatenormaldiag work for 1-D not 2-D shapes
+                sUV_mv = coreutils.base_loc_scale(
+                    'mvn0', loc_s, scale_s, multivariate=False)
+                # TODO send sUV or sUV_mv as argument to step size? sample
+                # works the same way. same with log_prob
 
+                total_time = 0.
                 data = {R: R_true, I: I_train}
                 if t == 0:
                     gamma = 1.
                     lipschitz_estimate = opt.adafw_linit()
                     step_type = 'init'
                 elif FLAGS.fw_variant == 'fixed':
+                    start_step_time = time.time()
                     step_result = opt.fixed(weights, qUVt_components, qUV_prev,
-                                            loc_s, scale_s, sUV, p_joint, data, t)
+                                            loc_s, scale_s, sUV, p_joint,
+                                            data, t)
+                    end_step_time = time.time()
+                    total_time += float(end_step_time - start_step_time)
+                elif FLAGS.fw_variant == 'line_search':
+                    start_step_time = time.time()
+                    step_result = opt.line_search_dkl(weights, qUVt_components,
+                                                      qUV_prev, loc_s, scale_s,
+                                                      sUV, p_joint, data, t)
+                    end_step_time = time.time()
+                    total_time += float(end_step_time - start_step_time)
                 elif FLAGS.fw_variant == 'adafw':
+                    start_step_time = time.time()
                     step_result = opt.adaptive_fw(
-                        weights, qUVt_components, qUV_prev, loc_s, scale_s, sUV,
-                        UV, data, t, lipschitz_estimate)
+                        weights, qUVt_components, qUV_prev, loc_s, scale_s,
+                        sUV, p_joint, data, t, lipschitz_estimate)
+                    end_step_time = time.time()
+                    total_time += float(end_step_time - start_step_time)
+
                     step_type = step_result['step_type']
                     if step_type == 'adaptive':
+                        lipschitz_estimate = step_result['l_estimate']
+                elif FLAGS.fw_variant == 'ada_pfw':
+                    start_step_time = time.time()
+                    step_result = opt.adaptive_pfw(
+                        weights, qUVt_components, qUV_prev, loc_s, scale_s,
+                        sUV, p_joint, data, t, lipschitz_estimate)
+                    end_step_time = time.time()
+                    total_time += float(end_step_time - start_step_time)
+
+                    step_type = step_result['step_type']
+                    if step_type in ['adaptive', 'drop']:
+                        lipschitz_estimate = step_result['l_estimate']
+                elif FLAGS.fw_variant == 'ada_afw':
+                    start_step_time = time.time()
+                    step_result = opt.adaptive_pfw(
+                        weights, qUVt_components, qUV_prev, loc_s, scale_s,
+                        sUV, p_joint, data, t, lipschitz_estimate)
+                    end_step_time = time.time()
+                    total_time += float(end_step_time - start_step_time)
+
+                    step_type = step_result['step_type']
+                    if step_type in ['adaptive', 'away', 'drop']:
                         lipschitz_estimate = step_result['l_estimate']
 
                 if t == 0:
                     gamma = 1.
                     weights.append(gamma)
                     qUVt_components.append({'loc': loc_s, 'scale': scale_s})
-                    #new_components = [sUV]
-                    new_components = [coreutils.base_loc_scale(
-                            'mvn',
-                            loc_s,
-                            scale_s,
-                            multivariate=False)]
+                    new_components = [sUV_mv]
                 else:
                     qUVt_components = step_result['params']
                     weights = step_result['weights']
                     gamma = step_result['gamma']
                     new_components = [
                         coreutils.base_loc_scale(
-                            'mvn',
+                            'mvn0',
                             c['loc'],
                             c['scale'],
                             multivariate=False) for c in qUVt_components
@@ -197,6 +244,9 @@ def main(_):
                 #qR = ed.copy(R, {UV: qUV_new})
                 cR = ed.copy(R_mask, {UV: qUV_new}) # reconstructed matrix
 
+                # Log metrics for current iteration
+                logger.info('total time %f' % total_time)
+                append_to_file(times_filename, total_time)
 
                 logger.info('iter %d, gamma %.4f' % (t, gamma))
                 append_to_file(step_filename, gamma)
@@ -223,15 +273,22 @@ def main(_):
                 logger.info("iter %d ed test mse %.5f" % (t, test_mse))
                 append_to_file(mse_test_filename, test_mse)
 
-                ## ll needs qR needs to be a distribution
-                ## can't use directly, need to calculate directly
-                #test_ll = ed.evaluate(
-                #    'log_lik',
-                #    data={
-                #        qR: R_true.astype('float32'),
-                #        I: I_test.astype(bool)
-                #    })
-                #logger.info("tier %d ed test ll %.5f" % (t, test_ll))
+                train_mse = ed.evaluate(
+                    'mean_squared_error',
+                    data={
+                        cR: R_true,
+                        I: I_train.astype(bool)
+                    })
+                logger.info("iter %d ed train mse %.5f" % (t, train_mse))
+                append_to_file(mse_train_filename, train_mse)
+
+                #train_ll = log_likelihood(qUV_new, R_true, I_train, sess, D, N,
+                #                          M)
+                #logger.info("iter %d train log lik %.5f" % (t, train_ll))
+                #append_to_file(ll_train_filename, train_ll)
+
+                #test_ll = log_likelihood(qUV_new, R_true, I_test, sess, D, N, M)
+                #logger.info("iter %d test log lik %.5f" % (t, test_ll))
                 #append_to_file(ll_test_filename, test_ll)
 
                 # elbo_loss might be meaningless

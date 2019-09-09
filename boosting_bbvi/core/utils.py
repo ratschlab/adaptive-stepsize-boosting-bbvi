@@ -14,6 +14,7 @@ from colorama import Style
 import os, sys
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", ".."))
 from boosting_bbvi.core.mvn import mvn
+from boosting_bbvi.core.mvn0 import mvn as mvn0
 from boosting_bbvi.core.lpl import lpl
 
 def eprint(*args, **kwargs):
@@ -80,6 +81,7 @@ def get_mixture(weights, components):
         components=components)
 
 
+
 def construct_multivariatenormaldiag(dims, iter, name=''):
     return construct_base('mvnormal', dims, iter, name, multivariate=True)
 
@@ -109,6 +111,7 @@ def base_loc_scale(dist_name, loc, scale, **kwargs):
         'mvnormal': MultivariateNormalDiag,
         'mvlaplace': VectorLaplaceDiag,
         'mvn': mvn,
+        'mvn0': mvn0,
         'mvl': lpl,
     }
     Base = base_dict[dist_name]

@@ -88,10 +88,11 @@ class Joint:
         # constructed matrix dist. R ~ N(U'V, 1)
         pR = Normal(
             loc=tf.matmul(tf.transpose(sample_uv[:, :self.N]), sample_uv[:, self.N:]),
-            scale=tf.ones([self.N, self.M]))
-        full_log_likelihood = pR.log_prob(self.R)
-        train_log_likelihood = pR * self.I
-        log_lik = tf.reduce_sum(train_log_likelihood)
+            scale=tf.ones([self.N, self.M]))  # dist (N, M)
+        full_log_likelihood = pR.log_prob(self.R)  # (N, M)
+        full_log_likelihood_t = full_log_likelihood.eval()
+        train_log_likelihood = full_log_likelihood * self.I # (N, M)
+        log_lik = tf.reduce_sum(train_log_likelihood) # ()
         return log_lik
 
 
@@ -102,11 +103,13 @@ class Joint:
         Returns:
             tensor scalar of log_prob
         """
-        prior_batch = self.prior_UV.log_prob(sample_uv)
-        prior = tf.reduce_sum(prior_batch)
+        prior_batch = self.prior_UV.log_prob(sample_uv) # (D, N + M)
+        prior = tf.reduce_sum(prior_batch) 
         ll = self.log_lik(sample_uv)
+        print('DEBUG prior', prior_batch.get_shape())
+        print('DEBUG values', prior.eval(), ll.eval())
         p_joint = prior + ll
-        # return self.sess.run(p_joint)
+        #return prior
         return p_joint
 
     def log_prob_batch(self, samples):
@@ -127,7 +130,7 @@ def log_likelihood(qR, R, I, sess, D, N, M):
     p_joint = Joint(R, I, sess, D, N, M)
     theta = qR.sample()
     log_lik_evals = [
-        Joint.log_lik(theta) for _ in range(FLAGS.n_monte_carlo_samples)
+        p_joint.log_lik(theta).eval() for _ in range(FLAGS.n_monte_carlo_samples)
     ]
     ll = np.mean(elbo_evals)
     return ll
@@ -144,12 +147,31 @@ def grad_kl_dotp(q, p, p_theta):
         float
     """
     theta = p_theta.sample() # single sample
-    grad_kl_tensor = q.log_prob(theta) - p.log_prob(theta)
+    grad_kl_tensor = tf.reduce_sum(q.log_prob(theta)) - p.log_prob(theta)
     grad_kl_evals = [
         grad_kl_tensor.eval() for _ in range(FLAGS.n_monte_carlo_samples)
     ]
     grad_kl = np.mean(grad_kl_evals)
     return grad_kl
+
+
+def argmax_grad_dotp(p, q, candidates):
+    u"""Find the component most aligned with ∇f
+
+    finds s ∈ candidates argmax <log q/p, s>
+    
+    Args:
+        p, q, candidates
+    Returns:
+        Index of optimum candidate, and value
+    """
+    maxi, max_step = None, None
+    for i, s in enumerate(candidates):
+        step_s = grad_kl_dotp(q, p, s)
+        if i == 0 or max_step < step_s:
+            max_step = step_s
+            max_i = i
+    return max_i, max_step
 
 
 def elbo(q, joint):
@@ -163,7 +185,8 @@ def elbo(q, joint):
     """
     theta = q.sample()
     p_log_prob = joint.log_prob(theta)
-    elbo_tensor = joint.log_prob(theta) - q.log_prob(theta)
+    q_log_prob = tf.reduce_sum(q.log_prob(theta))
+    elbo_tensor = p_log_prob - q_log_prob
     elbo_evals = [
         elbo_tensor.eval() for _ in range(FLAGS.n_monte_carlo_samples)
     ]
@@ -181,8 +204,9 @@ def divergence(q, p, metric='kl'):
         float
     """
     if metric == 'kl':
-        theta = q.sample()
-        expectation_tensor = q.log_prob(theta) - p.log_prob(theta)
+        theta = q.sample()  # (D, N + M)
+        expectation_tensor = tf.reduce_sum(q.log_prob(theta)) - tf.reduce_sum(
+            p.log_prob(theta))
         exp_evals = [
             expectation_tensor.eval()
             for _ in range(FLAGS.n_monte_carlo_samples)
@@ -190,11 +214,6 @@ def divergence(q, p, metric='kl'):
         return np.mean(exp_evals)
     elif metric == 'dotproduct':
         raise NotImplementedError('Metric not supported %s' % metric)
-        #samples_q = q.sample([n_monte_carlo_samples])
-        #distance_wrt_q = tf.reduce_mean(q.prob(samples_q) - p.prob(samples_q))
-        #samples_p = p.sample([n_monte_carlo_samples])
-        #distance_wrt_p = tf.reduce_mean(q.prob(samples_p) - p.prob(samples_p))
-        #return (distance_wrt_q - distance_wrt_p)
     elif metric == 'gradkl':
         raise NotImplementedError('Metric not supported %s' % metric)
     else:

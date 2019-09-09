@@ -33,7 +33,7 @@ flags.DEFINE_integer('VI_iter', 1000, '')
 flags.DEFINE_integer('seed', 0, 'The random seed to use for everything.')
 flags.DEFINE_float('mask_ratio', 0.5, 'Test train indicator matrix mask ratio')
 tf.flags.DEFINE_enum(
-    "base_dist", 'mvn',
+    "base_dist", 'normal',
     ['normal', 'laplace', 'mvnormal', 'mvlaplace', 'mvn', 'mvl'],
     'base distribution for variational approximation')
 
@@ -68,7 +68,8 @@ def main(_):
         scale=tf.ones([N, M]))  # generator dist. for matrix
     R_mask = R * I  # generated masked matrix
 
-    #p_joint = Joint(R_true, I_train, sess, D, N, M)
+    sess = tf.InteractiveSession()
+    p_joint = Joint(R_true, I_train, sess, D, N, M)
 
     # INFERENCE
     mean_suv = tf.concat([
@@ -94,8 +95,18 @@ def main(_):
                                 cR: R_true,
                                 I: I_test.astype(bool)
                             })
-    logger.info("iter %d ed test mse %.5f" % (FLAGS.VI_iter, test_mse))
+    logger.info("iters %d ed test mse %.5f" % (FLAGS.VI_iter, test_mse))
+    train_mse = ed.evaluate('mean_squared_error',
+                            data={
+                                cR: R_true,
+                                I: I_train.astype(bool)
+                            })
+    logger.info("iters %d ed train mse %.5f" % (FLAGS.VI_iter, train_mse))
+
+    elbo_t = elbo(qUV, p_joint)
+    logger.info('iters %d elbo %.2f' % (FLAGS.VI_iter, elbo_t))
 
 
 if __name__ == "__main__":
     tf.app.run(main)
+
