@@ -24,17 +24,24 @@ parser.add_argument(
     "--adaptive_var",
     help='adaptive variant to process',
     nargs='+',
-    choices=['adafw', 'ada_pfw', 'ada_afw'])
+    choices=['adafw', 'ada_pfw', 'ada_afw', 'line_search', 'none'])
 parser.add_argument(
-    "--select_adaptive",
+    "--select_run",
     default='all',
-    choices=['all', 'seed_best', 'hp_best'],
+    choices=['all', 'hp_max', 'hp_mean'],
     help="""method to select adaptive runs,
                 all: all runs
-                seed_best: for each seed, choose the best run
-                hp_best: choose the best hp over all runs
+                hp_max: choose the hp which gave the overall best metric
+                hp_mean: hp which gave overall best mean over all seeds
+                seed_best: for each seed, choose the best hp
                 """)
-parser.add_argument('--datapath', type=str, help='directory containing run data')
+parser.add_argument(
+    '--datapath', type=str, help='directory containing run data')
+parser.add_argument(
+    '--outfile',
+    type=str,
+    default='stdout',
+    help='path to store plots, stdout to show')
 args = parser.parse_args()
 
 def parse_command(cmd):
@@ -70,21 +77,18 @@ def parse_command(cmd):
 
 def parse_run(run):
     """Parse a run.
-        Example - fixed_mvn_init_vi, ada_pfw_mvn_init_random_1_48,
-        fixed_mvl_init_random_1
+        Example - fixed, ada_pfw_1_48,
+        fixed_4, adafw_0_4
     """
-    order_tok = ['fw_variant', 'base_dist', 'iter0', 'i', 'counter']
+    order_tok = ['fw_variant', 'i', 'counter']
     idx_tok = 0
     tokens = run.split('_')
     result = {}
     while tokens:
         param = order_tok[idx_tok]
-        if param == 'fw_variant' and (tokens[0] == 'ada'):
+        if param == 'fw_variant' and (tokens[0] == 'ada' or
+                                      tokens[0] == 'line'):
             value = "%s_%s" % (tokens[0], tokens[1])
-            tokens = tokens[2:]
-        elif param == 'iter0':
-            assert tokens[0] == 'init', 'parsing %s failed' % run
-            value = tokens[1]
             tokens = tokens[2:]
         else:
             value = tokens[0]
@@ -106,8 +110,6 @@ def parse_log(run_name, path):
     run_name: name of directory
     path: full path, assumes run.log present with first line being
         command
-    cluster: if the log file is from the clusters (euler/leonhard/leomed)
-        or normal stdout
     """
     if os.path.isfile(path):
         with open(path, 'r') as f:
@@ -116,8 +118,9 @@ def parse_log(run_name, path):
                     break
             cmd = f.readline()
             res = parse_command(cmd)
-    else:
-        res = parse_run(run_name)
+
+    res_name = parse_run(run_name)
+    res['counter'] = res_name['counter'] # hp counter
 
     # Convert numerical values
     for key in res:
@@ -129,13 +132,13 @@ def parse_log(run_name, path):
         elif key in ['linit_fixed', 'exp_adafw', 'damping_adafw']:
             res[key] = float(res[key])
 
-    if 'iter0' not in res:
-        res['iter0'] = 'vi'
-
     # Fixed variant does not have lipschitz estimate
     if 'linit_fixed' not in res:
+        # linit_fixed is also used as initial step size in line search
+        # NOTE bad coding practice
         res['linit_fixed'] = (0.001
-                              if res['fw_variant'].startswith('ada') else None)
+                              if (res['fw_variant'].startswith('ada') or
+                                  res['fw_variant'] == 'line_search') else None)
     if 'exp_adafw' not in res:
         res['exp_adafw'] = (2.0
                               if res['fw_variant'].startswith('ada') else None)
@@ -148,20 +151,25 @@ def parse_log(run_name, path):
 
     return res
 
-def plot_mvl(df, y='roc', iter0_split=False):
+def plot_iteration(df, y='elbo', fw_split=False):
     # Integer x axis
     fix, ax = plt.subplots()
     ax.xaxis.set_major_locator(MaxNLocator(integer=True))
 
-    if iter0_split:
-        g = sns.FacetGrid(df, col="fw_variant", hue='iter0')
+    if fw_split:
+        g = sns.FacetGrid(df, col="fw_variant")
         g.map(sns.lineplot, 'fw_iter', y)
         g.add_legend()
     else:
-        # show only vi iter0
-        df = df.loc[df['iter0'] == 'vi']
-        sns.lineplot(x='fw_iter', y=y, hue='fw_variant', data=df)
+        g = sns.lineplot(x='fw_iter', y=y, hue='fw_variant', data=df)
+        #x='fw_iter', y=y, hue='fw_variant', err_style="bars", data=df)
+        #sns.lineplot(x='fw_iter', y=y, hue='fw_variant', units='linit_fixed',
+        #    estimator=None, lw=1, data=df)
 
+    if args.outfile == 'stdout':
+        plt.show()
+    else:
+        g.get_figure().savefig(args.outfile)
 
 
 def plot_base_dist(df, y='roc'):
@@ -211,40 +219,56 @@ def plot_adaptive(df, iter0_split=False):
     pass
 
 
-def filter_adaptive(df, y='roc'):
-    """Select adaptive runs to process"""
-    #TODO vectorize this
-    if y not in ['roc', 'elbo']:
-        raise NotImplementedError('gap and other metrics should be minimized')
-    if args.select_adaptive != 'all':
-        filtered = [df.loc[df['fw_variant'] == 'fixed']]
+def make_table(df, metric):
+    """Compute metrics."""
+    result = df.groupby(['fw_variant'], as_index=False).agg(
+            {metric: ['mean', 'std', 'max']})
+    print(result, '\n')
+
+
+def filter_runs(df_all, df_best, metric='roc'):
+    """Filter runs to process based on run selection strategy.
+    
+    Using df_best, it finds the parameters to use depending on the
+    selection strategy. Assuming each counter refers to one particular
+    parameter configuration, grouping by counter is much better than
+    by param set {mu, eta, linit} for adaptive and {binit} for line search
+    """
+    # group by variant,parameters
+    #if metric in ['roc', 'elbo', 'll_test', 'll_train']: # maximize
+    #    idx = df_best.groupby(['fw_variant', 'counter'], sort=False)[metric].transform(max) == df_best[metric]
+    #    print(df_best[idx])
+    #elif metric in ['mse_train', 'mse_test', 'kl']: # minimize
+    #    raise NotImplementedError()
+
+    if args.select_run != 'all':
+        filtered_all = [df_all.loc[df_all['fw_variant'] == 'fixed']]
+        filtered_best = [df_best.loc[df_best['fw_variant'] == 'fixed']]
         for fw_var in args.adaptive_var:
-            df_var = df.loc[df['fw_variant'] == fw_var]
-            if args.select_adaptive == 'hp_best':
-                # find row with max val and use it's hps
-                best_idx = df_var[y].idxmax()
-                df_var_filtered = df_var.loc[
-                    (df_var['eta'] == df_var.loc[best_idx]['eta'])
-                    & (df_var['tau'] == df_var.loc[best_idx]['tau'])
-                    & (df_var['linit_fixed'] == df_var.loc[best_idx]['linit_fixed'])]
-                filtered.append(df_var_filtered)
-            elif args.select_adaptive == 'seed_best':
-                # for each seed, find the best parameter configurations
-                best_idx = df_var.groupby(['seed'])[y].idxmax()
-                df_var_best_iter = df_var.loc[best_idx]
-                for index, row in df_var_best_iter.iterrows():
-                    df_var_filtered = df_var.loc[
-                        (df_var['eta'] == row['eta'])
-                        & (df_var['tau'] == row['tau'])
-                        & (df_var['linit_fixed'] == row['linit_fixed'])
-                        & (df_var['seed'] == row['seed'])]
-                    filtered.append(df_var_filtered)
-        df = pd.concat(filtered)
+            df_all_var = df_all.loc[df_all['fw_variant'] == fw_var]
+            df_best_var = df_best.loc[df_best['fw_variant'] == fw_var]
+            res = df_best_var.groupby(
+                ['counter'], as_index=False).agg({
+                    metric: ['mean', 'max']
+                })
+            res.columns = ['counter', '%s_mean' % metric, '%s_max' % metric]
+            if args.select_run == 'hp_max':
+                best_idx = res['%s_max' % metric].idxmax()
+            elif args.select_run == 'hp_mean':
+                best_idx = res['%s_mean' % metric].idxmax()
+            else:
+                raise NotImplementedError('%s not implemented' % args.select_run)
+            best_counter = res.loc[best_idx]['counter']
+            debug(res.shape, ' param configs best is ', best_counter)
+            all_var_filtered = df_all_var.loc[df_all_var['counter'] == best_counter]
+            best_var_filtered = df_best_var.loc[df_best_var['counter'] == best_counter]
+            filtered_all.append(all_var_filtered)
+            filtered_best.append(best_var_filtered)
 
-    #debug(df.groupby(['seed', 'fw_variant']).size())
-    df.reset_index(inplace=True)
+        df_all = pd.concat(filtered_all).reset_index()
+        df_best = pd.concat(filtered_best).reset_index()
+    return df_all, df_best
 
-    return df
 
 def pad_or_crop(a, n):
     """Fix len of list a to n"""
@@ -264,13 +288,16 @@ def blr():
 
     df = pd.DataFrame()
     cnt = 0
+    # runs_df contains all iterations
     runs_df = []
+    # best runs contains only the best iteration for every run
+    best_runs = []
     seeds_used = set()
     for nr, dr in zip(run_names, run_paths):
         param_dict = parse_log(nr, os.path.join(dr, 'run.log'))
         if param_dict['fw_variant'] not in args.all_var:
             continue
-        seeds_used.add(param_dict.get('seed', 0))
+        seeds_used.add(param_dict['seed'])
 
         rocs_filename = os.path.join(dr, 'roc.csv')
         with open(rocs_filename, 'r') as f:
@@ -289,19 +316,30 @@ def blr():
             ll_tests = [float(r.split(',')[0]) for r in f.readlines()]
 
         elbos_filename = os.path.join(dr, 'elbos.csv')
+        def get_elbo(token):
+            # elbo is sometimes elbo or elbo_t,KLqploss
+            token = token.strip()
+            if ',' in token: token = token.split(',')[0]
+            return float(token)
         with open(elbos_filename, 'r') as f:
-            elbos = [float(r.strip()) for r in f.readlines()]
+            elbos = [get_elbo(e) for e in f.readlines()]
 
         gap_filename = os.path.join(dr, 'gap.csv')
         with open(gap_filename, 'r') as f:
             gaps = [float(r.strip()) for r in f.readlines()]
+
+        times_filename = os.path.join(dr, 'times.csv')
+        with open(times_filename, 'r') as f:
+            # NOTE: time[0] is always 0.
+            times = [float(r.strip()) for r in f.readlines()]
 
         iter_info_filename = os.path.join(dr, 'iter_info.txt')
         if os.path.isfile(iter_info_filename):
             with open(iter_info_filename, 'r') as f:
                 iter_types = [r.strip() for r in f.readlines()]
         else:
-            iter_types = ['fixed'] * n_fw_iter
+            # fixed or line_search
+            iter_types = [param_dict['fw_variant']] * n_fw_iter
 
         rocs = pad_or_crop(rocs, n_fw_iter)
         ll_trains = pad_or_crop(ll_trains, n_fw_iter)
@@ -309,6 +347,7 @@ def blr():
         elbos = pad_or_crop(elbos, n_fw_iter)
         gaps = pad_or_crop(gaps, n_fw_iter)
         iter_types = pad_or_crop(iter_types, n_fw_iter)
+        times = pad_or_crop(times, n_fw_iter)
 
         data = {
             'roc': rocs,
@@ -317,36 +356,44 @@ def blr():
             'elbo': elbos,
             'gap': gaps,
             'iter_type': iter_types,
+            'time': times,
             'fw_iter': list(range(n_fw_iter)),
             'fw_variant': [param_dict['fw_variant']] * n_fw_iter,
             'seed': [param_dict['seed']] * n_fw_iter,
-            'base_dist': [param_dict['base_dist']] * n_fw_iter,
-            'iter0': [param_dict['iter0']] * n_fw_iter,
             'linit_fixed': [param_dict['linit_fixed']] * n_fw_iter,
             'tau': [param_dict['exp_adafw']] * n_fw_iter,
-            'eta': [param_dict['damping_adafw']] * n_fw_iter
+            'eta': [param_dict['damping_adafw']] * n_fw_iter,
+            'counter': [param_dict['counter']] * n_fw_iter,
         }
         run_df = pd.DataFrame(data)
         runs_df.append(run_df)
+        best_run = run_df.loc[run_df['roc'].idxmax()]
+        best_runs.append(best_run)
 
         cnt += 1
         if cnt % 500 == 0: debug(cnt, " runs processed")
 
-
     debug('seeds used ', list(seeds_used))
-    df = pd.concat(runs_df)
-    # mvl vs mvn is a modelling choice
-    df = df.loc[df['base_dist'] == 'mvl']
-    df.reset_index(inplace=True)
-    #df = filter_adaptive(df, args.metric)
+    all_run_df = pd.concat(runs_df)
+    all_run_df.reset_index(inplace=True)
+    debug(all_run_df.shape)
+    # index and fw_iter have same values
+    del all_run_df['index']
+    best_run_df = pd.DataFrame(best_runs, columns=best_runs[0].index)
+    best_run_df.reset_index(inplace=True)
+    del best_run_df['index']
+    #debug(best_run_df.sample(n=10))
+
+    # get filtered runs here
+    all_run_df, best_run_df = filter_runs(all_run_df, best_run_df, 'roc')
+    debug('shape of runs', all_run_df.shape, best_run_df.shape)
 
     ### Make plot ###
-    #plot_base_dist(df, args.metric)
-    plot_mvl(df, args.metric)
-    #plot_mvl(df, args.metric, iter0_split=True)
-    #plot_adaptive(df)
-    plt.show()
-    pass
+    plot_iteration(all_run_df, 'elbo')
+    make_table(best_run_df, 'roc')
+    make_table(all_run_df, 'time')
+    make_table(best_run_df, 'll_train')
+    make_table(best_run_df, 'll_test')
 
 
 def bmf():
@@ -439,10 +486,13 @@ def info():
         with open(filepath, 'r') as f:
             return len(list(f.readlines()))
 
-    fixed_n, adafw_n, ada_afw_n, ada_pfw_n  = [], [], [], []
+    fixed_n, line_search_n, adafw_n, ada_afw_n, ada_pfw_n  = [], [], [], [], []
     for dn, dr in zip(run_names, run_paths):
         if dn.startswith('fixed'):
             fixed_n.append(
+                get_n_lines(os.path.join(dr, '{}.csv'.format(args.metric))))
+        if dn.startswith('line_search'):
+            line_search_n.append(
                 get_n_lines(os.path.join(dr, '{}.csv'.format(args.metric))))
         elif dn.startswith('adafw'):
             adafw_n.append(
@@ -459,6 +509,12 @@ def info():
         fixed_n = np.asarray(fixed_n)
         print('fixed: median run length %d, min %d' % (np.median(fixed_n),
                                                        np.min(fixed_n)))
+
+    print('line search: number of runs %d' % (len(line_search_n)))
+    if line_search_n:
+        line_search_n = np.asarray(line_search_n)
+        print('line_search: median run length %d, min %d' %
+              (np.median(line_search_n), np.min(line_search_n)))
 
     print('adafw: number of runs %d' % (len(adafw_n)))
     if adafw_n:
@@ -480,5 +536,5 @@ def info():
 if __name__ == "__main__":
     args.all_var = args.adaptive_var + ['fixed']
     #info()
-    #blr()
-    bmf()
+    blr()
+    #bmf()
