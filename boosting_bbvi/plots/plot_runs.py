@@ -28,12 +28,14 @@ parser.add_argument(
 parser.add_argument(
     "--select_run",
     default='all',
-    choices=['all', 'hp_max', 'hp_mean'],
+    choices=['all', 'hp_max', 'hp_mean', 'hp_median', 'run_mean', 'run_median'],
     help="""method to select adaptive runs,
                 all: all runs
                 hp_max: choose the hp which gave the overall best metric
                 hp_mean: hp which gave overall best mean over all seeds
                 seed_best: for each seed, choose the best hp
+                run_mean: select run with best mean metric
+                run_median: select run with best median metric
                 """)
 parser.add_argument(
     '--datapath', type=str, help='directory containing run data')
@@ -96,11 +98,10 @@ def parse_run(run):
         result[param] = value
         idx_tok += 1
 
-    if 'i' not in result:
-        result['i'] = 0
-    if 'counter' not in result:
-        result['counter'] = 0
-
+    if 'i' not in result: result['i'] = 0
+    if 'counter' not in result: result['counter'] = 0
+    result['i'] = int(result['i'])
+    result['counter'] = int(result['counter'])
     return result
 
 
@@ -222,8 +223,86 @@ def plot_adaptive(df, iter0_split=False):
 def make_table(df, metric):
     """Compute metrics."""
     result = df.groupby(['fw_variant'], as_index=False).agg(
-            {metric: ['mean', 'std', 'max']})
+            {metric: ['mean', 'std', 'median', 'max']})
+    pd.set_option('precision',4)
     print(result, '\n')
+
+
+def make_iter_table(df, metric, return_latex=False):
+    """Compute metrics and select best iteration."""
+
+    # aggregate over random seeds
+    df_group = df.groupby(
+        ['fw_variant', 'counter', 'fw_iter'], as_index=False).agg({
+            metric: ['mean', 'std', 'max', 'median'],
+            'll_test': ['mean', 'std'],
+            'll_train': ['mean', 'std'],
+        })
+    df_group.columns = [
+        'fw_variant',
+        'counter',
+        'best_fw_iter',
+        '%s_mean' % metric,
+        '%s_std' % metric,
+        '%s_max' % metric,
+        '%s_median' % metric,
+        'll_test_mean',
+        'll_test_std',
+        'll_train_mean',
+        'll_train_std'
+    ]
+
+    # metric to compute best iteration
+    # ex - roc for blr, mse_test for bmf
+    # median or mean for best iteration
+    if args.select_run == 'run_mean': eval_metric = '%s_mean' % metric
+    elif args.select_run == 'run_median': eval_metric = '%s_median' % metric
+    else: raise NotImplementedError('%s not supported' % args.select_run)
+
+    # find best iteration per hp
+    #res_hp = df_group.groupby(['fw_variant', 'counter'], sort=False)[eval_metric].max()
+    #debug(res_hp)
+
+    # find best hp, iteration per fw_variant
+    best_counter_idx = df_group.groupby(['fw_variant'], sort=False)[eval_metric].idxmax()
+    res = df_group.loc[best_counter_idx]
+    debug(res, '\n')
+    # for every fw_variant, filter and use only the best hp
+    fw_vars = res['fw_variant'].tolist()
+    best_hp = res['counter'].tolist()
+    filtered_runs = []
+    for fw_var, best_counter in zip(fw_vars, best_hp):
+        debug(fw_var, ' counter ', best_counter)
+        run_filtered = df.loc[(df['counter'] == best_counter) &
+                              (df['fw_variant'] == fw_var)]
+        filtered_runs.append(run_filtered)
+    df_best = pd.concat(filtered_runs).reset_index()
+
+    if return_latex:
+        time_res = df_best.groupby(
+            ['fw_variant'], as_index=False).agg({
+                'time': ['mean', 'std']
+            })
+        time_res.columns = ['fw_variant', 'time_mean', 'time_std']
+        debug(time_res)
+        # keeping index same to can add columns later
+        res.reset_index(inplace=True)
+        time_res.reset_index(inplace=True)
+        # res and time_res should've same order of fw variants
+        assert res['fw_variant'].tolist() == time_res['fw_variant'].tolist()
+        res['time_mean'] = time_res['time_mean']
+        res['time_std'] = time_res['time_std']
+        metrics_to_print = ['roc', 'll_test', 'time']
+        print('fw_variant &', " &".join(metrics_to_print), end="\\\\\n")
+        print("\hline")
+        for _, row in res.iterrows():
+            print(row['fw_variant'], end=" ")
+            for m in metrics_to_print:
+                print("& %.3f $\pm$ %.3f" % (row["%s_mean" % m], row["%s_std" % m]),
+                      end=" ")
+            print('\\\\')
+
+    return res, df_best
 
 
 def filter_runs(df_all, df_best, metric='roc'):
@@ -249,13 +328,20 @@ def filter_runs(df_all, df_best, metric='roc'):
             df_best_var = df_best.loc[df_best['fw_variant'] == fw_var]
             res = df_best_var.groupby(
                 ['counter'], as_index=False).agg({
-                    metric: ['mean', 'max']
+                    metric: ['mean', 'max', 'median']
                 })
-            res.columns = ['counter', '%s_mean' % metric, '%s_max' % metric]
+            res.columns = [
+                'counter',
+                '%s_mean' % metric,
+                '%s_max' % metric,
+                '%s_median' % metric
+            ]
             if args.select_run == 'hp_max':
                 best_idx = res['%s_max' % metric].idxmax()
             elif args.select_run == 'hp_mean':
                 best_idx = res['%s_mean' % metric].idxmax()
+            elif args.select_run == 'hp_median':
+                best_idx = res['%s_median' % metric].idxmax()
             else:
                 raise NotImplementedError('%s not implemented' % args.select_run)
             best_counter = res.loc[best_idx]['counter']
@@ -291,6 +377,9 @@ def blr():
     # runs_df contains all iterations
     runs_df = []
     # best runs contains only the best iteration for every run
+    #NOTE FIXME selecting the best iteration early on can result in
+    # outlier estimates. Select best iteration based on the one which
+    # gives best mean/median over random seeds (not hp)
     best_runs = []
     seeds_used = set()
     for nr, dr in zip(run_names, run_paths):
@@ -367,7 +456,11 @@ def blr():
         }
         run_df = pd.DataFrame(data)
         runs_df.append(run_df)
+        # If we choose the best iteration in a FW training algorithms
+        # with high variance might get the best results even after
+        # performing well overall
         best_run = run_df.loc[run_df['roc'].idxmax()]
+        #best_run = run_df.tail(1)
         best_runs.append(best_run)
 
         cnt += 1
@@ -379,21 +472,27 @@ def blr():
     debug(all_run_df.shape)
     # index and fw_iter have same values
     del all_run_df['index']
+    # if best_runs is df then concat, if pd.Series then DataFrame()
     best_run_df = pd.DataFrame(best_runs, columns=best_runs[0].index)
+    #best_run_df = pd.concat(best_runs)
     best_run_df.reset_index(inplace=True)
     del best_run_df['index']
-    #debug(best_run_df.sample(n=10))
 
-    # get filtered runs here
-    all_run_df, best_run_df = filter_runs(all_run_df, best_run_df, 'roc')
+    # NOTE: best runs from each individual iteration are too noisy
+    # compute best iter after aggregating over all seeds
+    res, best_run_df = make_iter_table(all_run_df, 'roc', True)
     debug('shape of runs', all_run_df.shape, best_run_df.shape)
 
+    # get filtered runs here
+    #all_run_df, best_run_df = filter_runs(all_run_df, best_run_df, 'roc')
+
     ### Make plot ###
-    plot_iteration(all_run_df, 'elbo')
-    make_table(best_run_df, 'roc')
-    make_table(all_run_df, 'time')
-    make_table(best_run_df, 'll_train')
-    make_table(best_run_df, 'll_test')
+    plot_iteration(best_run_df, 'elbo')
+    #make_table(best_run_df, 'roc')
+    #make_table(all_run_df, 'time')
+    #make_table(best_run_df, 'time')
+    #make_table(best_run_df, 'll_train')
+    #make_table(best_run_df, 'll_test')
 
 
 def bmf():
@@ -535,6 +634,7 @@ def info():
 
 if __name__ == "__main__":
     args.all_var = args.adaptive_var + ['fixed']
+    pd.set_option('precision',4)
     #info()
     blr()
     #bmf()
