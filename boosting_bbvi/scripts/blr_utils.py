@@ -127,13 +127,8 @@ def load_wine_data():
     data = np.load(filename)
     return (data['Xtrain'], data['ytrain']), (data['Xtest'], data['ytest'])
 
-def load_eicu(task):
-    '''We need to release this data. Gideon <gideon@inf.ethz.ch>'''
-    #TODO
-    raise NotImplementedError
-
-def load_eicu_bak(task='icu_mortality'):
-    basepath = "data/eicu/train_test_split.npz"
+def load_eicu(task='icu_mortality'):
+    basepath = os.path.join(FLAGS.datapath, "train_test_split.npz")
     data = np.load(basepath)
 
     # N.B. we only deal with classification,

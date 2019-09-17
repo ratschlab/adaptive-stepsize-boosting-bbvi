@@ -27,7 +27,7 @@ flags.DEFINE_integer(
 flags.DEFINE_enum('linit', 'fixed',
                   ['fixed', 'lipschitz_v2', 'lipschitz_v1'],
                   'Initialization methods versions for lipschitz constant')
-flags.DEFINE_float('linit_fixed', 0.01,
+flags.DEFINE_float('linit_fixed', 0.001,
                    'Fixed initial estimate of Lipschitz constant (adafw)'
                    'Initial step size of Line Search')
 flags.DEFINE_integer('adafw_MAXITER', 10,

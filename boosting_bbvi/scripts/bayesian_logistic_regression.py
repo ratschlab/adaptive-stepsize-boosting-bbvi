@@ -277,7 +277,6 @@ def main(_):
                 elbo_loss = elboModel.KLqp({w: qtw_new},
                         data={X: Xtrain, y: ytrain})
                 res_update = elbo_loss.run()
-                debug(res_update['loss'], elbo_t)
 
                 logger.info("iter, %d, elbo, %.2f loss %.2f" %
                             (t, elbo_t, res_update['loss']))
