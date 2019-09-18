@@ -31,6 +31,20 @@ def get_indicators(N, M, prob_std=0.5):
     ind = np.random.binomial(1, prob_std, (N, M))
     return ind
 
+def softplus(x):
+    # log1p(exp(x))
+    return np.log(np.exp(x) + 1)
+
+
+def get_random_components(D, N, M, n_components=10):
+    "Get random LMO solutions."
+    ret = []
+    for i in range(n_components):
+        loc_i = np.random.rand(D, (N + M)).astype(np.float32)
+        scale_i = softplus(np.random.rand(D, (N + M))).astype(np.float32)
+        ret.append({'loc': loc_i, 'scale': scale_i})
+    return ret
+
 
 def get_data():
     if FLAGS.exp == 'cbcl':
@@ -106,8 +120,7 @@ class Joint:
         prior_batch = self.prior_UV.log_prob(sample_uv) # (D, N + M)
         prior = tf.reduce_sum(prior_batch) 
         ll = self.log_lik(sample_uv)
-        print('DEBUG prior', prior_batch.get_shape())
-        print('DEBUG values', prior.eval(), ll.eval())
+        #print('DEBUG values', prior.eval(), ll.eval())
         p_joint = prior + ll
         #return prior
         return p_joint

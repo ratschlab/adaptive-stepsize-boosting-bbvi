@@ -24,7 +24,7 @@ import boosting_bbvi.optim.bmf_step_size as opt
 import boosting_bbvi.core.elbo as elboModel
 from boosting_bbvi.core.utils import block_diagonal, eprint, debug, append_to_file
 import boosting_bbvi.core.utils as coreutils
-from boosting_bbvi.scripts.bmf_utils import get_data, Joint, elbo, log_likelihood
+from boosting_bbvi.scripts.bmf_utils import (get_data, Joint, elbo, log_likelihood, get_random_components)
 logger = coreutils.get_logger()
 
 flags = tf.app.flags
@@ -37,13 +37,15 @@ flags.DEFINE_integer('n_fw_iter', 10, '')
 flags.DEFINE_integer('LMO_iter', 1000, '')
 flags.DEFINE_integer('seed', 0, 'The random seed to use for everything.')
 flags.DEFINE_float('mask_ratio', 0.5, 'Test train indicator matrix mask ratio')
-tf.flags.DEFINE_enum(
+flags.DEFINE_enum(
     "base_dist", 'mvn0',
     ['normal', 'laplace', 'mvnormal', 'mvlaplace', 'mvn', 'mvl', 'mvn0'],
     'base distribution for variational approximation')
 flags.DEFINE_enum('fw_variant', 'fixed',
                   ['fixed', 'adafw', 'ada_pfw', 'ada_afw', 'line_search'],
                   '[fixed (default)] The Frank-Wolfe variant to use.')
+flags.DEFINE_boolean('restore', False, 
+        'is the algorithm starting from 0 or restoring a previous solution')
 
 ed.set_seed(FLAGS.seed)
 np.random.seed(FLAGS.seed)
@@ -59,6 +61,13 @@ def main(_):
 
     # Solution components
     weights, qUVt_components = [], []
+
+    start = 0
+    if FLAGS.restore:
+        start = 50
+        qUVt_components = get_random_components(D, N, M, start)
+        weights = np.random.dirichlet([1.] * start).astype(np.float32)
+        lipschitz_estimate = opt.adafw_linit()
 
     # Metrics to log
     # TODO replace it with file logging
@@ -94,7 +103,7 @@ def main(_):
         iter_info_filename = os.path.join(outdir, 'iter_info.txt')
         open(iter_info_filename, 'w').close()
 
-    for t in range(FLAGS.n_fw_iter):
+    for t in range(start, start + FLAGS.n_fw_iter):
         g = tf.Graph()
         with g.as_default():
             tf.set_random_seed(FLAGS.seed)
@@ -118,7 +127,6 @@ def main(_):
 
                 p_joint = Joint(R_true, I_train, sess, D, N, M)
 
-                # TODO build previous components and add here
                 if t == 0:
                     fw_iterates = {}
                 else:
@@ -241,7 +249,7 @@ def main(_):
                 #    loc=tf.matmul(
                 #        tf.transpose(qUV_new[:, :N]), qUV_new[:, N:]),
                 #    scale=tf.ones([N, M]))
-                #qR = ed.copy(R, {UV: qUV_new})
+                qR = ed.copy(R, {UV: qUV_new})
                 cR = ed.copy(R_mask, {UV: qUV_new}) # reconstructed matrix
 
                 # Log metrics for current iteration
@@ -268,7 +276,7 @@ def main(_):
                     'mean_squared_error',
                     data={
                         cR: R_true,
-                        I: I_test.astype(bool)
+                        I: I_test
                     })
                 logger.info("iter %d ed test mse %.5f" % (t, test_mse))
                 append_to_file(mse_test_filename, test_mse)
@@ -277,19 +285,22 @@ def main(_):
                     'mean_squared_error',
                     data={
                         cR: R_true,
-                        I: I_train.astype(bool)
+                        I: I_train
                     })
                 logger.info("iter %d ed train mse %.5f" % (t, train_mse))
                 append_to_file(mse_train_filename, train_mse)
 
+                # very slow
                 #train_ll = log_likelihood(qUV_new, R_true, I_train, sess, D, N,
                 #                          M)
-                #logger.info("iter %d train log lik %.5f" % (t, train_ll))
-                #append_to_file(ll_train_filename, train_ll)
+                train_ll = ed.evaluate('log_lik', data={qR: R_true.astype(np.float32), I: I_train})
+                logger.info("iter %d train log lik %.5f" % (t, train_ll))
+                append_to_file(ll_train_filename, train_ll)
 
                 #test_ll = log_likelihood(qUV_new, R_true, I_test, sess, D, N, M)
-                #logger.info("iter %d test log lik %.5f" % (t, test_ll))
-                #append_to_file(ll_test_filename, test_ll)
+                test_ll = ed.evaluate('log_lik', data={qR: R_true.astype(np.float32), I: I_test})
+                logger.info("iter %d test log lik %.5f" % (t, test_ll))
+                append_to_file(ll_test_filename, test_ll)
 
                 # elbo_loss might be meaningless
                 elbo_loss = elboModel.KLqp({UV: qUV_new}, data={R: R_true, I: I_train})
@@ -297,6 +308,10 @@ def main(_):
                 res_update = elbo_loss.run()
                 logger.info('iter %d -elbo loss %.2f or %.2f' % (t, res_update['loss'], elbo_t))
                 append_to_file(elbos_filename, "%f,%f" % (elbo_t, res_update['loss']))
+
+                # serialize the current iterate
+                np.savez(os.path.join(outdir, 'qt_latest.npz'), weights=weights,
+                        comps=qUVt_components)
 
                 sess.close()
         tf.reset_default_graph()
