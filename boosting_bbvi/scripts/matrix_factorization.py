@@ -62,46 +62,55 @@ def main(_):
     # Solution components
     weights, qUVt_components = [], []
 
-    start = 0
-    if FLAGS.restore:
-        start = 50
-        qUVt_components = get_random_components(D, N, M, start)
-        weights = np.random.dirichlet([1.] * start).astype(np.float32)
-        lipschitz_estimate = opt.adafw_linit()
-
-    # Metrics to log
-    # TODO replace it with file logging
+    # Files to log metrics
     times_filename = os.path.join(outdir, 'times.csv')
-    open(times_filename, 'w').close()
-
     mse_train_filename = os.path.join(outdir, 'mse_train.csv')
-    open(mse_train_filename, 'w').close()
-
     mse_test_filename = os.path.join(outdir, 'mse_test.csv')
-    open(mse_test_filename, 'w').close()
-
     ll_test_filename = os.path.join(outdir, 'll_test.csv')
-    open(ll_test_filename, 'w').close()
-
     ll_train_filename = os.path.join(outdir, 'll_train.csv')
-    open(ll_train_filename, 'w').close()
-
     elbos_filename = os.path.join(outdir, 'elbos.csv')
-    open(elbos_filename, 'w').close()
-
     gap_filename = os.path.join(outdir, 'gap.csv')
-    open(gap_filename, 'w').close()
-
     step_filename = os.path.join(outdir, 'steps.csv')
-    open(step_filename, 'w').close()
-
     # 'adafw', 'ada_afw', 'ada_pfw'
     if FLAGS.fw_variant.startswith('ada'):
         lipschitz_filename = os.path.join(outdir, 'lipschitz.csv')
-        open(lipschitz_filename, 'w').close()
-
         iter_info_filename = os.path.join(outdir, 'iter_info.txt')
-        open(iter_info_filename, 'w').close()
+
+    start = 0
+    if FLAGS.restore:
+        #start = 50
+        #qUVt_components = get_random_components(D, N, M, start)
+        #weights = np.random.dirichlet([1.] * start).astype(np.float32)
+        #lipschitz_estimate = opt.adafw_linit()
+        parameters = np.load(os.path.join(outdir, 'qt_latest.npz'))
+        weights = list(parameters['weights'])
+        start = parameters['fw_iter']
+        qUVt_components = list(parameters['comps'])
+        assert len(weights) == len(qUVt_components), "Inconsistent storage"
+        # get lipschitz estimate from the file, could've stored it
+        # in params but that would mean different saved file for
+        # adaptive variants
+        if FLAGS.fw_variant.startswith('ada'):
+            lipschitz_filename = os.path.join(outdir, 'lipschitz.csv')
+            if not os.path.isfile(lipschitz_filename):
+                raise ValueError("Inconsistent storage")
+            with open(lipschitz_filename, 'r') as f:
+                l = f.readlines()
+                lipschitz_estimate = float(l[-1].strip())
+    else:
+        # empty the files present in the folder already
+        open(times_filename, 'w').close()
+        open(mse_train_filename, 'w').close()
+        open(mse_test_filename, 'w').close()
+        open(ll_test_filename, 'w').close()
+        open(ll_train_filename, 'w').close()
+        open(elbos_filename, 'w').close()
+        open(gap_filename, 'w').close()
+        open(step_filename, 'w').close()
+        # 'adafw', 'ada_afw', 'ada_pfw'
+        if FLAGS.fw_variant.startswith('ada'):
+            open(lipschitz_filename, 'w').close()
+            open(iter_info_filename, 'w').close()
 
     for t in range(start, start + FLAGS.n_fw_iter):
         g = tf.Graph()
@@ -311,7 +320,7 @@ def main(_):
 
                 # serialize the current iterate
                 np.savez(os.path.join(outdir, 'qt_latest.npz'), weights=weights,
-                        comps=qUVt_components)
+                        comps=qUVt_components, fw_iter=t+1)
 
                 sess.close()
         tf.reset_default_graph()
