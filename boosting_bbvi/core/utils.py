@@ -77,7 +77,7 @@ def get_mixture(weights, components):
         1., sum(weights), rel_tol=1e-5), "Weights not normalized"
 
     return Mixture(
-        cat=Categorical(probs=tf.convert_to_tensor(weights)),
+        cat=Categorical(probs=tf.convert_to_tensor(weights, dtype=tf.float32)),
         components=components)
 
 

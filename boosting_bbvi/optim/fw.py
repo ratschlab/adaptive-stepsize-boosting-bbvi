@@ -13,7 +13,8 @@ import tensorflow as tf
 from tensorflow.contrib.distributions import kl_divergence
 from edward.models import (Categorical, Dirichlet, Empirical, InverseGamma,
                            MultivariateNormalDiag, Normal, ParamMixture,
-                           Mixture)
+                           Mixture, Exponential, VectorExponentialDiag,
+                           VectorLaplaceDiag)
 import edward as ed
 
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -45,6 +46,24 @@ class FWOptimizer(object):
     def __init__(self):
         """Construct a FWOptimizer object """
 
+    def target_dist(*args, **kwargs):
+        """Build the target distribution"""
+        stds = kwargs['stds']
+        mus = kwargs['mus']
+        pi = kwargs['pi']
+        #pcomps = [
+        #    MultivariateNormalDiag(
+        #        loc=tf.convert_to_tensor(mus[i], dtype=tf.float32),
+        #        scale_diag=tf.convert_to_tensor(
+        #            stds[i], dtype=tf.float32))
+        #    for i in range(len(mus))
+        #]
+        #p = Mixture(
+        #    cat=Categorical(probs=tf.convert_to_tensor(pi[0])),
+        #    components=pcomps)
+        q = VectorLaplaceDiag(loc=mus[0], scale_diag=stds[0])
+        #debug(p.event_shape, p.batch_shape, q.event_shape, q.batch_shape)
+        return q
 
     def run(self, outdir, pi, mus, stds, n_features):
         """Run Boosted BBVI.
@@ -110,16 +129,7 @@ class FWOptimizer(object):
                 sess = tf.InteractiveSession()
                 with sess.as_default():
                     # build target distribution
-                    pcomps = [
-                        MultivariateNormalDiag(
-                            loc=tf.convert_to_tensor(mus[i], dtype=tf.float32),
-                            scale_diag=tf.convert_to_tensor(
-                                stds[i], dtype=tf.float32))
-                        for i in range(len(mus))
-                    ]
-                    p = Mixture(
-                        cat=Categorical(probs=tf.convert_to_tensor(pi[0])),
-                        components=pcomps)
+                    p = self.target_dist(pi=pi, mus=mus, stds=stds)
 
                     if t == 0:
                         fw_iterates = {}
@@ -145,7 +155,8 @@ class FWOptimizer(object):
                     # first component will be random distribution, in
                     # that case no inference is needed.
                     # NOTE: KLqp has a side effect, it is modifying s
-                    if FLAGS.iter0 == 'vi' or t > 0:
+                    #if FLAGS.iter0 == 'vi' or t > 0:
+                    if FLAGS.iter0 == 'vi':
                         inference = relbo.KLqp(
                             {
                                 p: s
@@ -260,7 +271,7 @@ class FWOptimizer(object):
                     logger.info('total time %f' % (time_t))
                     append_to_file(times_filename, time_t)
 
-                    elbo_t = elbo(q_latest, p)
+                    elbo_t = elbo(q_latest, p, n_samples=10)
                     logger.info("iter, %d, elbo, %.2f +/- %.2f" %
                                 (t, elbo_t[0], elbo_t[1]))
                     append_to_file(elbos_filename,

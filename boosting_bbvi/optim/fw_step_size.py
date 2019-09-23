@@ -38,6 +38,8 @@ flags.DEFINE_enum(
     'distance_metric', 'dotproduct', ['dotproduct', 'kl', 'constant'],
     'Metric to use for distance norm between probability distrbutions')
 
+MIN_GAMMA = 0.01
+
 # TODO(sauravshekhar) The initialization process suggested in
 # the paper seems like a heuristic and is complicated in the
 # case of probability distributions. FIXME later
@@ -93,7 +95,9 @@ def adafw_linit(q_0, p):
 def adaptive_pfw(weights, comps, locs, diags, q_t, mu_s, cov_s, s_t, p,
                  k, l_prev):
     """
-    ...one step forward two steps back...
+        Adaptive pairwise variant.
+    Args:
+        same as fixed
     """
     d_t_norm = divergence(s_t, q_t, metric=FLAGS.distance_metric).eval()
     logger.info('distance norm is %.5f' % d_t_norm)
@@ -146,7 +150,8 @@ def adaptive_pfw(weights, comps, locs, diags, q_t, mu_s, cov_s, s_t, p,
     f_t =  kl_divergence(q_t, p, allow_nan_stats=False).eval()
     drop_step = False
     debug('f(q_t) = %.5f' % (f_t))
-    while True:
+    gamma = 2. / (k + 2)
+    while gamma >= MIN_GAMMA and i < FLAGS.adafw_MAXITER:
         # compute $L_t$ and $\gamma_t$
         l_t = pow_tau * eta * l_prev
         gamma = min(gap / (l_t * d_t_norm), gamma_max)
@@ -185,7 +190,7 @@ def adaptive_pfw(weights, comps, locs, diags, q_t, mu_s, cov_s, s_t, p,
                 del new_comps[index_v_t]
                 del new_weights[index_v_t]
                 logger.info("...drop step")
-                step_type += '_drop'
+                step_type = 'drop'
             return {
                 'gamma': gamma,
                 'l_estimate': l_t,
@@ -196,14 +201,18 @@ def adaptive_pfw(weights, comps, locs, diags, q_t, mu_s, cov_s, s_t, p,
             }
         pow_tau *= tau
         i += 1
-        if i > FLAGS.adafw_MAXITER:
-            return default_fixed_step("fixed_adaptive_MAXITER")
+    
+    # gamma below MIN_GAMMA
+    logger.warning("gamma below threshold value, returning fixed step")
+    return default_fixed_step("fixed_adaptive_MAXITER")
 
 
 def adaptive_afw(weights, comps, locs, diags, q_t, mu_s, cov_s, s_t, p,
                  k, l_prev):
     """
-    ...two steps from hell...
+        Away steps variant
+    Args:
+        same as fixed
     """
     d_t_norm = divergence(s_t, q_t, metric=FLAGS.distance_metric).eval()
     logger.info('distance norm is %.5f' % d_t_norm)
@@ -249,13 +258,34 @@ def adaptive_afw(weights, comps, locs, diags, q_t, mu_s, cov_s, s_t, p,
         else:
             gamma_max = 100. # Large value when t = 1
 
+    def default_fixed_step(fail_type='fixed'):
+        # adaptive failed, return to fixed
+        gamma = 2. / (k + 2.)
+        new_comps = copy.copy(comps)
+        new_comps.append({'loc': mu_s, 'scale_diag': cov_s})
+        new_weights = [(1. - gamma) * w for w in weights]
+        new_weights.append(gamma)
+        return {
+            'gamma': 2. / (k + 2.),
+            'l_estimate': l_prev,
+            'weights': new_weights,
+            'comps': new_comps,
+            'gap': gap,
+            'step_type': fail_type
+        }
+    
+    if gap <= 0:
+        return default_fixed_step()
+
     tau = FLAGS.exp_adafw
     eta = FLAGS.damping_adafw
     pow_tau = 1.0
     i, l_t = 0, l_prev
     f_t =  kl_divergence(q_t, p, allow_nan_stats=False).eval()
     debug('f(q_t) = %.5f' % (f_t))
-    while True:
+    gamma = 2. / (k + 2)
+    is_drop_step = False
+    while gamma >= MIN_GAMMA and i < FLAGS.adafw_MAXITER:
         # compute $L_t$ and $\gamma_t$
         l_t = pow_tau * eta * l_prev
         # NOTE: Handle extreme values of gamma carefully
@@ -290,9 +320,7 @@ def adaptive_afw(weights, comps, locs, diags, q_t, mu_s, cov_s, s_t, p,
             new_comps = copy.copy(comps)
             if gamma == gamma_max:
                 # drop v_t
-                """
-                ...one step too far...
-                """
+                is_drop_step = True
                 logger.info('...drop step')
                 del new_weights[index_v_t]
                 new_weights = [(1. + gamma) * w for w in new_weights]
@@ -307,6 +335,7 @@ def adaptive_afw(weights, comps, locs, diags, q_t, mu_s, cov_s, s_t, p,
                         for loc, diag in zip(drop_locs, drop_diags)
                     ])
             else:
+                is_drop_step = False
                 new_weights = [(1. + gamma) * w for w in new_weights]
                 new_weights[index_v_t] -= gamma
                 qt_new = Mixture(
@@ -321,44 +350,26 @@ def adaptive_afw(weights, comps, locs, diags, q_t, mu_s, cov_s, s_t, p,
                     'linear extrapolated = %.5f' % (l_t, gamma, quad_bound_lhs,
                                                     quad_bound_rhs))
         if quad_bound_lhs <= quad_bound_rhs:
+            step_type = "adaptive"
+            if adaptive_step_type == "away": step_type = "away"
+            if is_drop_step: step_type = "drop"
             return {
                 'gamma': gamma,
                 'l_estimate': l_t,
                 'weights': new_weights,
                 'comps': new_comps,
                 'gap': gap,
-                'step_type': "adaptive_%s" % adaptive_step_type
+                'step_type': step_type
             }
         pow_tau *= tau
         i += 1
-        if i > FLAGS.adafw_MAXITER:
-            # adaptive loop failed, return fixed step size
-            gamma = 2. / (k + 2.)
-            new_comps = copy.copy(comps)
-            new_comps.append({'loc': mu_s, 'scale_diag': cov_s})
-            new_weights = [(1. - gamma) * w for w in weights]
-            new_weights.append(gamma)
-            step_type = 'fixed'
-            return {
-                'gamma': 2. / (k + 2.),
-                'l_estimate': l_prev,
-                'weights': new_weights,
-                'comps': new_comps,
-                'gap': gap,
-                'step_type': "fixed_adaptive_MAXITER"
-            }
+
+    # adaptive loop failed, return fixed step size
+    logger.warning("gamma below threshold value, returning fixed step")
+    return default_fixed_step()
 
 
-def adaptive_fw(weights,
-                locs,
-                diags,
-                q_t,
-                mu_s,
-                cov_s,
-                s_t,
-                p,
-                k,
-                l_prev,
+def adaptive_fw(weights, locs, diags, q_t, mu_s, cov_s, s_t, p, k, l_prev,
                 return_gamma=False):
     """Adaptive Frank-Wolfe algorithm.
     
@@ -441,14 +452,11 @@ def adaptive_fw(weights,
                     'linear extrapolated = %.5f' % (l_t, gamma, quad_bound_lhs,
                                                     quad_bound_rhs))
         if quad_bound_lhs <= quad_bound_rhs:
-            """
-            ...step into christmas...
-            """
             step_type = "adaptive"
             break
         pow_tau *= tau
         i += 1
-        if i > FLAGS.adafw_MAXITER:
+        if i > FLAGS.adafw_MAXITER or gamma < MIN_GAMMA:
             # estimate not good
             gamma = 2. / (k + 2.)
             l_t = l_prev
@@ -464,15 +472,7 @@ def adaptive_fw(weights,
     }
 
 
-def line_search_dkl(weights,
-                    locs,
-                    diags,
-                    q_t,
-                    mu_s,
-                    cov_s,
-                    s_t,
-                    p,
-                    k,
+def line_search_dkl(weights, locs, diags, q_t, mu_s, cov_s, s_t, p, k,
                     return_gamma=False):
     """Performs line search for the best step size gamma.
     
