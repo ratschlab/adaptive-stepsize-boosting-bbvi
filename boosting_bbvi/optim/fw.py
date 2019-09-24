@@ -144,7 +144,8 @@ class FWOptimizer(object):
                         fw_iterates = {p: qtx}
 
                     # s is the solution to LMO. It is initialized randomly
-                    s = coreutils.construct_normal([n_features], t, 's')
+                    #s = coreutils.construct_normal([n_features], t, 's')
+                    s = coreutils.construct_multivariatenormaldiag([n_features], t, 's')
 
                     sess.run(tf.global_variables_initializer())
 
@@ -163,21 +164,16 @@ class FWOptimizer(object):
                             }, fw_iterates=fw_iterates, fw_iter=t)
                         inference.run(n_iter=FLAGS.LMO_iter)
                     # s now contains solution to LMO
-                    """
-                    ..takes me one step closer to the edge...
-                    """
                     end_inference_time = time.time()
 
-                    mu_s = s.loc.eval() # s.mean().eval()
-                    cov_s = s.scale.eval() # s.stddev().eval()
+                    mu_s = s.mean().eval()
+                    cov_s = s.stddev().eval()
 
-                    total_time += end_inference_time - start_inference_time
+                    # NOTE: keep only step size time
+                    #total_time += end_inference_time - start_inference_time
 
                     # compute step size to update the next iterate
                     step_result = {}
-                    """
-                    Step by step, heart to heart, left right left...
-                    """
                     if t == 0:
                         gamma = 1.
                         if FLAGS.fw_variant.startswith('ada'):

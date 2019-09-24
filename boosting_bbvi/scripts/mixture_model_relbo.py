@@ -23,6 +23,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), "..", ".."))
 import boosting_bbvi.core.relbo as relbo
 import boosting_bbvi.core.utils as coreutils
 import boosting_bbvi.optim.fw as optim
+from boosting_bbvi.core.utils import eprint, debug
 logger = coreutils.get_logger()
 
 
@@ -57,10 +58,15 @@ elif FLAGS.exp == 'mixture_2d':
     pi = np.array([[0.4, 0.6]]).astype(np.float32)
     mus = [[1.], [-1.]]
     stds = [[.6], [.6]]
-    # create mus and stds for all dimensions, copying for now
-    # TODO(sauravshekhar) create asymmetrical mv gaussians
-    mus = np.tile(mus, [1, 2])
-    stds = np.tile(stds, [1, 2])
+    n_features = 2
+    mus = np.tile(mus, [1, n_features]).astype(np.float32)
+    stds = np.tile(stds, [1, n_features]).astype(np.float32)
+elif FLAGS.exp == 'mixture_nd':
+    p = np.random.dirichlet([1, 4, 10, 5])
+    pi = p[np.newaxis, :].astype(np.float32)
+    n_features = 10
+    mus = np.random.rand(4, n_features).astype(np.float32)*3 - 1.
+    stds = np.random.rand(4, n_features).astype(np.float32)
 else:
     raise KeyError("undefined experiment")
 
@@ -82,12 +88,12 @@ def main(argv):
     del argv
 
     # create dataset
-    if FLAGS.exp.endswith('2d'):
-        x_train, components = build_toy_dataset(N, D=2)
-    else:
-        x_train, components = build_toy_dataset(N)
+    #if FLAGS.exp.endswith('2d'):
+    #    x_train, components = build_toy_dataset(N, D=2)
+    #else:
+    #    x_train, components = build_toy_dataset(N)
 
-    n_examples, n_features = x_train.shape
+    #n_examples, n_features = x_train.shape
 
     outdir = FLAGS.outdir
     if '~' in outdir: outdir = os.path.expanduser(outdir)

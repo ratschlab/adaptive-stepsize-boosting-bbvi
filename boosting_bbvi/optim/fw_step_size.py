@@ -525,11 +525,17 @@ def line_search_dkl(weights, locs, diags, q_t, mu_s, cov_s, s_t, p, k,
         rez_q = grad_kl(qt_new, p, sample_q).eval()
         grad_gamma.append({'E_s': rez_s, 'E_q': rez_q, 'gamma': gamma})
         # Gradient descent step size decreasing as $\frac{1}{it + 1}$
-        gamma = gamma - 0.1 * (np.mean(rez_s) - np.mean(rez_q)) / (it + 1.)
+        gamma_prime = gamma - 0.1 * (np.mean(rez_s) - np.mean(rez_q)) / (it + 1.)
         # Projecting it back to [0, 1]
-        if gamma >= 1 or gamma <= 0:
-            gamma = max(min(gamma, 1.), 0.)
+        if gamma_prime >= 1 or gamma_prime <= 0:
+            gamma_prime = max(min(gamma_prime, 1.), 0.)
+
+        if np.abs(gamma - gamma_prime) < 1e-6:
+            gamma = gamma_prime
             break
+
+        gamma = gamma_prime
+
     if return_gamma: return gamma
     return {'gamma': gamma, 'n_samples': N_samples, 'grad_gamma': grad_gamma}
 
