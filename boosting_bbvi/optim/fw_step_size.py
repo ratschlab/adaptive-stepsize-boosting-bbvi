@@ -20,7 +20,7 @@ logger = coreutils.get_logger()
 flags = tf.app.flags
 FLAGS = flags.FLAGS
 flags.DEFINE_integer(
-    'n_monte_carlo_samples', 10,
+    'n_monte_carlo_samples', 1000,
     'Number of samples for approximating gradient')
 flags.DEFINE_integer(
     'n_line_search_iter', 10,

@@ -142,11 +142,11 @@ def construct_base(dist_name, dims, iter, name='', **kwargs):
     # TODO(sauravshekhar) check if np.random.normal() matters and remove o/w
     loc = tf.get_variable(
         name + "_loc%d" % iter,
-        initializer=tf.random_normal(dims) + np.random.normal())
+        initializer=tf.random_normal(dims))
     scale = tf.nn.softplus(
         tf.get_variable(
             name + "_scale%d" % iter,
-            initializer=tf.random_normal(dims) + np.random.normal()))
+            initializer=tf.random_normal(dims)))
     return base_loc_scale(dist_name, loc, scale, **kwargs)
 
 

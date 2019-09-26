@@ -52,6 +52,8 @@ flags.DEFINE_enum(
     '[fixed (default), line_search, adafw] The Frank-Wolfe variant to use.')
 flags.DEFINE_enum('LMO', 'relbo', ['relbo', 'random'],
                   'get lmo from relbo or random')
+flags.DEFINE_enum('init', 'good', ['good', 'random'],
+                  'initialization good or random')
 flags.DEFINE_integer('LMO_iter', 1000,
                      'number of LMO iterations, not used if random lmo')
 flags.DEFINE_enum('dist', 'normal', ['normal', 'laplace'],
@@ -135,16 +137,23 @@ def main(argv):
             with sess.as_default():
                 p, mus, stds = create_target_dist()
 
+                # current iterate (solution until now)
+                if FLAGS.init == 'random':
+                    muq = np.random.randn(D).astype(np.float32)
+                    stdq = softplus(np.random.randn(D).astype(np.float32))
+                else:
+                    muq = mus[0]
+                    stdq = stds[0]
+
                 # 1 correct LMO
                 t = 1
-                comps = [{'loc': mus[0], 'scale_diag': stds[0]}]
+                comps = [{'loc': muq, 'scale_diag': stdq}]
                 weights = [1.0]
                 lipschitz_estimate = opt.adafw_linit(None, None)
 
-                # current iterate (solution until now)
                 qtx = MultivariateNormalDiag(
-                    loc=tf.convert_to_tensor(mus[0], dtype=tf.float32),
-                    scale_diag=tf.convert_to_tensor(stds[0], dtype=tf.float32))
+                    loc=tf.convert_to_tensor(muq, dtype=tf.float32),
+                    scale_diag=tf.convert_to_tensor(stdq, dtype=tf.float32))
                 fw_iterates = {p: qtx}
 
                 # calculate kl-div with 1 component
