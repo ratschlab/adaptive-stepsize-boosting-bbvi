@@ -38,7 +38,7 @@ flags.DEFINE_enum(
     'distance_metric', 'dotproduct', ['dotproduct', 'kl', 'constant'],
     'Metric to use for distance norm between probability distrbutions')
 
-MIN_GAMMA = 0.01
+MIN_GAMMA = 0.001
 
 # TODO(sauravshekhar) The initialization process suggested in
 # the paper seems like a heuristic and is complicated in the
@@ -411,9 +411,10 @@ def adaptive_fw(weights, locs, diags, q_t, mu_s, cov_s, s_t, p, k, l_prev,
     step_q = tf.reduce_mean(grad_kl(q_t, p, sample_q)).eval()
     gap = step_q - step_s
     logger.info('duality gap %.5f' % gap)
-    if gap < 0: logger.warning("Duality gap is negative returning fixed step")
+    if gap < 0: logger.warning("Duality gap is negative returning 0 step")
 
-    gamma = 2. / (k + 2.)
+    #gamma = 2. / (k + 2.)
+    gamma = 0.
     tau = FLAGS.exp_adafw
     eta = FLAGS.damping_adafw
     # did the adaptive loop suceed or not
@@ -456,9 +457,11 @@ def adaptive_fw(weights, locs, diags, q_t, mu_s, cov_s, s_t, p, k, l_prev,
             break
         pow_tau *= tau
         i += 1
-        if i > FLAGS.adafw_MAXITER or gamma < MIN_GAMMA:
+        #if i > FLAGS.adafw_MAXITER or gamma < MIN_GAMMA:
+        if i > FLAGS.adafw_MAXITER:
             # estimate not good
-            gamma = 2. / (k + 2.)
+            #gamma = 2. / (k + 2.)
+            gamma = 0.
             l_t = l_prev
             step_type = "fixed_adaptive_MAXITER"
             break

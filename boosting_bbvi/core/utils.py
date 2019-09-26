@@ -29,6 +29,10 @@ def decay_linear(value):
     return 1. / value
 
 
+def softplus(x):
+    # log1p(exp(x))
+    return np.log(np.exp(x) + 1)
+
 def decay_log(value):
     return 1. / np.log(value + 1)
 
