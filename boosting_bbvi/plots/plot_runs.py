@@ -25,7 +25,7 @@ parser.add_argument(
     help='adaptive variant to process',
     nargs='+',
     choices=['adafw', 'ada_pfw', 'ada_afw', 'line_search', 'none'])
-parser.add_argument("--exp", default='info', choices=['info', 'blr', 'bmf'])
+parser.add_argument("--exp", default='info', choices=['info', 'blr', 'bmf', 'blr2'])
 parser.add_argument(
     "--select_run",
     default='all',
@@ -162,7 +162,7 @@ def parse_log(run_name, path):
         res['seed'] = 0
     return res
 
-def plot_iteration(df, y='elbo', fw_split='split', ax=None):
+def plot_iteration(df, y='elbo', fw_split='split', ax=None, do_label=True, do_output=True):
     if ax is None:
         fig, ax = plt.subplots()
     # Integer x axis
@@ -187,31 +187,37 @@ def plot_iteration(df, y='elbo', fw_split='split', ax=None):
 
         line_search_mean = df_group.loc[df_group['fw_variant'] == 'line_search']["%s_mean" % y].values
         line_search_std = df_group.loc[df_group['fw_variant'] == 'line_search']["%s_std" % y].values
-        ax.plot(x, line_search_mean, label='line-search', color='#4878D0')
+        l_line_search = ax.plot(x, line_search_mean, label='line-search', color='#4878D0')
         ax.fill_between(x, line_search_mean - line_search_std, line_search_mean + line_search_std, alpha=0.2, facecolor='#4878D0')
 
         fixed_mean = df_group.loc[df_group['fw_variant'] == 'fixed']["%s_mean" % y].values
         fixed_std = df_group.loc[df_group['fw_variant'] == 'fixed']["%s_std" % y].values
-        ax.plot(x, fixed_mean, label='Fixed', color='#EE854A')
+        l_fixed = ax.plot(x, fixed_mean, label='Fixed', color='#EE854A')
         ax.fill_between(x, fixed_mean - fixed_std, fixed_mean + fixed_std, alpha=0.2, facecolor='#EE854A')
 
         adafw_mean = df_group.loc[df_group['fw_variant'] == 'adafw']["%s_mean" % y].values
         adafw_std = df_group.loc[df_group['fw_variant'] == 'adafw']["%s_std" % y].values
-        ax.plot(x, adafw_mean, label='AdaFW', color='#6ACC64')
+        l_adafw = ax.plot(x, adafw_mean, label='AdaFW', color='#6ACC64')
         ax.fill_between(x, adafw_mean - adafw_std, adafw_mean + adafw_std, alpha=0.2, facecolor='#6ACC64')
 
         ada_afw_mean = df_group.loc[df_group['fw_variant'] == 'ada_afw']["%s_mean" % y].values
         ada_afw_std = df_group.loc[df_group['fw_variant'] == 'ada_afw']["%s_std" % y].values
-        ax.plot(x, ada_afw_mean, label='AdaAFW', color='#D65F5F')
+        l_ada_afw = ax.plot(x, ada_afw_mean, label='AdaAFW', color='#D65F5F')
         ax.fill_between(x, ada_afw_mean - ada_afw_std, ada_afw_mean + ada_afw_std, alpha=0.2, facecolor='#D65F5F')
 
         ada_pfw_mean = df_group.loc[df_group['fw_variant'] == 'ada_pfw']["%s_mean" % y].values
         ada_pfw_std = df_group.loc[df_group['fw_variant'] == 'ada_pfw']["%s_std" % y].values
-        ax.plot(x, ada_pfw_mean, label='AdaPFW', color='#956CB4')
+        l_ada_pfw = ax.plot(x, ada_pfw_mean, label='AdaPFW', color='#956CB4')
         ax.fill_between(x, ada_pfw_mean - ada_pfw_std, ada_pfw_mean + ada_pfw_std, alpha=0.2, facecolor='#956CB4')
 
-        ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.1), ncol=3, frameon=False)
-        ax.set(ylabel='ELBO', xlabel='iteration')
+        ax.set(xlabel='iteration')
+
+        if do_label:
+            ax.set(ylabel='ELBO')
+            #ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.1), ncol=3, frameon=False)
+            #plt.figlegend([l_line_search, l_fixed, l_adafw, l_ada_afw, l_ada_pfw],
+            #              ["line-search", 'fixed', 'AdaFW', 'AdaAFW', 'AdaPFW'],
+            #              loc='upper center', bbox_to_anchor=(0.5, -0.1), ncol=3, frameon=False)
     else:
         g = sns.lineplot(x='fw_iter', y=y, hue='fw_variant', data=df, ax=ax)
         #g = sns.lineplot(x='fw_iter', y=y, hue='fw_variant', data=df, ax=ax, estimator=np.median)
@@ -229,11 +235,12 @@ def plot_iteration(df, y='elbo', fw_split='split', ax=None):
                 loc='lower left', bbox_to_anchor=(0, 1.02, 1., 0.102),
                 mode="expand", borderaxespad=0., ncol=2)
 
-    if args.outfile == 'stdout':
-        plt.show()
-    else:
-        plt.tight_layout()
-        ax.get_figure().savefig(args.outfile)
+    if do_output:
+        if args.outfile == 'stdout':
+            plt.show()
+        else:
+            plt.tight_layout()
+            ax.get_figure().savefig(args.outfile)
 
 
 def plot_base_dist(df, y='roc'):
@@ -244,20 +251,21 @@ def plot_base_dist(df, y='roc'):
     sns.lineplot(x='fw_iter', y=y, hue='fw_variant', style='base_dist', data=df)
 
 
-def plot_adaptive(df, iter0_split=False):
+def plot_adaptive(df):
     """Analyze the performance of adaptive variants.
 
     Args:
         base_split: keep only Laplace
         iter0_split: keep only vi
     """
-    if not iter0_split: df = df.loc[df['iter0'] == 'vi']
-    df = df.loc[df['fw_variant'].isin(['adafw', 'ada_afw', 'ada_pfw'])]
+    adaptive_var = ['adafw', 'ada_afw', 'ada_pfw']
+    ada_title = ['AdaFW', 'AdaAFW', 'AdaPFW']
+    df = df.loc[df['fw_variant'].isin(adaptive_var)]
 
     # plot linit with style
-    g = sns.FacetGrid(df, col="fw_variant", hue='linit_fixed')
-    g.map(sns.lineplot, 'fw_iter', 'roc')
-    g.add_legend()
+    #g = sns.FacetGrid(df, col="fw_variant", hue='linit_fixed')
+    #g.map(sns.lineplot, 'fw_iter', 'roc')
+    #g.add_legend()
 
     ## style plot gets very crowded
     #sns.lineplot(
@@ -266,21 +274,32 @@ def plot_adaptive(df, iter0_split=False):
     # plot eta, tau best results heatmap
     plt.figure()
     #hp_matrix = df.groupby(['eta', 'tau'])['roc'].max().unstack()
-    hp_matrix = pd.crosstab(df.eta, df.tau, values=df.roc, aggfunc='max')
-    sns.heatmap(hp_matrix)
+    #hp_matrix = pd.crosstab(df.eta, df.tau, values=df.roc, aggfunc='max')
+    #sns.heatmap(hp_matrix)
 
     # plot iter info
-    fig, ax = plt.subplots(len(args.adaptive_var), 1)
-    for i, fw_var in enumerate(args.adaptive_var):
+    fig, ax = plt.subplots(len(adaptive_var), 1)
+    for i, fw_var in enumerate(adaptive_var):
         df_var = df.loc[df['fw_variant'] == fw_var]
         t_matrix = pd.crosstab(df_var.fw_iter, df_var.iter_type)
         #t_matrix.columns.names = ['']
         #t_matrix.reset_index(inplace=True)
         #sns.barplot(x='fw_iter', hue='iter_info', data=t_matrix)
-        t_matrix.plot(kind='bar', stacked=True, title=fw_var, ax=ax[i])
+        t_matrix.plot(kind='bar', stacked=True, title=ada_title[i], ax=ax[i])
+        # Put a legend to the right of the current axis
+        ax[i].legend(loc='center left', bbox_to_anchor=(1, 0.5))
+        # keep xticks only in the last one
+        if i != len(adaptive_var) - 1:
+            ax[i].set(xticks=[])
+            ax[i].set(xlabel="")
+        else:
+            ax[i].set(xlabel='Iteration')
 
-    # plot lipschitz estimates
-    pass
+    if args.outfile == 'stdout':
+        plt.show()
+    else:
+        plt.tight_layout()
+        ax[0].get_figure().savefig(args.outfile)
 
 
 def make_table(df, metric):
@@ -302,32 +321,38 @@ def make_iter_table(df, metric, return_latex=False):
         maximize = False
     else: raise NotImplementedError('metric %s not supported ' % metric)
 
+    def var_median(x):
+        # return variance of the median estimator
+        n = 10
+        median_list = [np.nanmedian(np.random.choice(x, n)) for _ in range(20)]
+        return np.std(median_list)
+
     # aggregate over random seeds
     if args.exp == 'bmf':
         df_group = df.groupby(
             ['fw_variant', 'counter', 'fw_iter'], as_index=False).agg({
-                metric: ['mean', 'std', best, 'median'],
+                metric: ['mean', 'std', best, 'median', var_median],
                 #'mse_train': ['mean', 'std'], 'll_train': ['mean', 'std'],
                 #'mse_train': ['mean', 'std'], 'mse_test': ['mean', 'std'],
-                'mse_test': ['mean', 'std', 'median'], 'll_train': ['mean', 'std', 'median'],
+                'mse_test': ['mean', 'std', 'median'], 'll_test': ['mean', 'std', 'median'],
             })
         df_group.columns = [
             'fw_variant', 'counter', 'best_fw_iter', '%s_mean' % metric,
-            '%s_std' % metric, '%s_%s' % (metric, best), '%s_median' % metric,
+            '%s_std' % metric, '%s_%s' % (metric, best), '%s_median' % metric, '%s_var_median' % metric,
             #'mse_train_mean', 'mse_train_std', 'll_train_mean', 'll_train_std'
             #'mse_train_mean', 'mse_train_std', 'mse_test_mean', 'mse_test_std'
-            'mse_test_mean', 'mse_test_std', 'mse_test_median', 'll_train_mean', 'll_train_std', 'll_train_median'
+            'mse_test_mean', 'mse_test_std', 'mse_test_median', 'll_test_mean', 'll_test_std', 'll_test_median'
         ]
     elif args.exp == 'blr':
         df_group = df.groupby(
             ['fw_variant', 'counter', 'fw_iter'], as_index=False).agg({
-                metric: ['mean', 'std', best, 'median'],
+                metric: ['mean', 'std', best, 'median', var_median],
                 #'ll_test': ['mean', 'std'], 'll_train': ['mean', 'std'],
                 'll_test': ['mean', 'std', 'median'], 'roc': ['mean', 'std', 'median'],
             })
         df_group.columns = [
             'fw_variant', 'counter', 'best_fw_iter', '%s_mean' % metric,
-            '%s_std' % metric, '%s_%s' % (metric, best), '%s_median' % metric,
+            '%s_std' % metric, '%s_%s' % (metric, best), '%s_median' % metric, '%s_var_median' % metric,
             #'ll_test_mean', 'll_test_std', 'll_train_mean', 'll_train_std'
             'll_test_mean', 'll_test_std', 'll_test_median', 'roc_mean', 'roc_std', 'roc_median'
         ]
@@ -386,7 +411,7 @@ def make_iter_table(df, metric, return_latex=False):
             metrics_to_print = [metric, 'roc', 'time']
         elif args.exp == 'bmf':
             #metrics_to_print = [metric, 'mse_train', 'll_train']
-            metrics_to_print = [metric, 'mse_test', 'll_train']
+            metrics_to_print = [metric, 'mse_test', 'll_test', 'time']
         else:
             raise NotImplementedError
         print('fw_variant &', " &".join(metrics_to_print), end="\\\\\n")
@@ -395,7 +420,7 @@ def make_iter_table(df, metric, return_latex=False):
             print(row['fw_variant'], end=" ")
             for m in metrics_to_print:
                 if m == metric:
-                    print("& %.3f" % (row["%s_median" % m]),
+                    print("& %.3f $\pm$ %.3e" % (row["%s_median" % m], row['%s_var_median' % m]),
                         end="")
                 else:
                     print("& %.3f $\pm$ %.3e" % (row["%s_mean" % m], row["%s_std" % m]),
@@ -586,19 +611,23 @@ def blr():
     # compute best iter after aggregating over all seeds
     #res, best_run_df = make_iter_table(all_run_df, 'roc', True)
     res, best_run_df = make_iter_table(all_run_df, 'll_train', True)
-    debug('shape of runs', all_run_df.shape, best_run_df.shape)
 
     # get filtered runs here
     #all_run_df, best_run_df = filter_runs(all_run_df, best_run_df, 'roc')
 
-    ### Make plot ###
+    ### Make plot of iteration###
     #plot_iteration(best_run_df, 'elbo')
-    plot_iteration(all_run_df, 'elbo', fw_split='range')
+    #plot_iteration(all_run_df, 'elbo', fw_split='range')
     #make_table(best_run_df, 'roc')
     #make_table(all_run_df, 'time')
     #make_table(best_run_df, 'time')
     #make_table(best_run_df, 'll_train')
     #make_table(best_run_df, 'll_test')
+
+    ### Analyze adaptive variants
+    #plot_adaptive(best_run_df)
+
+    return best_run_df
 
 
 def bmf():
@@ -707,7 +736,7 @@ def bmf():
     debug('shape of runs', df.shape, best_run_df.shape)
 
     ### Make plot
-    #plot_iteration(best_run_df, 'elbo')
+    #plot_iteration(best_run_df, 'elbo', fw_split='range')
     #plot_iteration(best_run_df, 'mse_test')
 
 
@@ -773,9 +802,34 @@ def info():
 if __name__ == "__main__":
     args.all_var = args.adaptive_var + ['fixed']
     pd.set_option('precision', 3)
-    if args.exp == 'info':
-        info()
-    elif args.exp == 'blr':
-        blr()
-    elif args.exp == 'bmf':
-        bmf()
+    if args.exp == 'info': info()
+    elif args.exp == 'blr': blr()
+    elif args.exp == 'bmf': bmf()
+    elif args.exp == 'blr2':
+        # two at the same time
+        args.exp = 'blr'
+        dpath = args.datapath.split(',')
+
+        fig, ax = plt.subplots(nrows=1, ncols=2, sharex=False)
+
+        # chem
+        args.datapath = dpath[0]
+        args.n_fw_iter = 50
+        df_chem = blr()
+        plot_iteration(df_chem, 'elbo', fw_split='range', ax=ax[0], do_label=True, do_output=False)
+
+        # eicu
+        args.datapath = dpath[1]
+        args.n_fw_iter = 40
+        df_eicu = blr()
+        plot_iteration(df_eicu, 'elbo', fw_split='range', ax=ax[1], do_label=False, do_output=False)
+
+        handles, labels = ax[0].get_legend_handles_labels()
+        #fig.legend(handles, labels, loc='upper center', bbox_to_anchor=(0.5, -0.1), ncol=3, frameon=False)
+        fig.legend(handles, labels, loc='lower center', bbox_to_anchor=(0.5, -0.02), ncol=5, frameon=False)
+
+        if args.outfile == 'stdout':
+            plt.show()
+        else:
+            plt.tight_layout()
+            ax[0].get_figure().savefig(args.outfile)
