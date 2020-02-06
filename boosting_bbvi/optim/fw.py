@@ -36,6 +36,8 @@ flags.DEFINE_enum(
     '[fixed (default), line_search, fc] The Frank-Wolfe variant to use.')
 flags.DEFINE_enum('iter0', 'vi', ['vi', 'random'],
                   '1st component a random distribution or from vi')
+flags.DEFINE_boolean('restore', False, 
+        'is the algorithm starting from 0 or restoring a previous solution')
 # flags.DEFINE_string('decay', 'log',
 # '[linear, log (default), squared] The decay rate to use for Lambda.')
 
@@ -51,19 +53,18 @@ class FWOptimizer(object):
         stds = kwargs['stds']
         mus = kwargs['mus']
         pi = kwargs['pi']
-        #pcomps = [
-        #    MultivariateNormalDiag(
-        #        loc=tf.convert_to_tensor(mus[i], dtype=tf.float32),
-        #        scale_diag=tf.convert_to_tensor(
-        #            stds[i], dtype=tf.float32))
-        #    for i in range(len(mus))
-        #]
-        #p = Mixture(
-        #    cat=Categorical(probs=tf.convert_to_tensor(pi[0])),
-        #    components=pcomps)
-        q = VectorLaplaceDiag(loc=mus[0], scale_diag=stds[0])
-        #debug(p.event_shape, p.batch_shape, q.event_shape, q.batch_shape)
-        return q
+        pcomps = [
+            MultivariateNormalDiag(
+                loc=tf.convert_to_tensor(mus[i], dtype=tf.float32),
+                scale_diag=tf.convert_to_tensor(
+                    stds[i], dtype=tf.float32))
+            for i in range(len(mus))
+        ]
+        p = Mixture(
+            cat=Categorical(probs=tf.convert_to_tensor(pi[0])),
+            components=pcomps)
+        #q = VectorLaplaceDiag(loc=mus[0], scale_diag=stds[0])
+        return p
 
     def run(self, outdir, pi, mus, stds, n_features):
         """Run Boosted BBVI.
@@ -87,6 +88,16 @@ class FWOptimizer(object):
         # L-continuous gradient estimate
         lipschitz_estimate = None
 
+        #debug('target', mus, stds)
+        start = 0
+        if FLAGS.restore:
+            # 1 correct LMO
+            start = 1
+            comps.append({'loc': mus[0], 'scale_diag': stds[0]})
+            weights.append(1.0)
+            lipschitz_estimate = opt.adafw_linit(None, None)
+
+
         # Metrics to log
         times_filename = os.path.join(outdir, 'times.csv')
         open(times_filename, 'w').close() # truncate the file if exists
@@ -101,11 +112,13 @@ class FWOptimizer(object):
 
         objective_filename = os.path.join(outdir, 'kl.csv')
         logger.info("saving kl divergence to, %s" % objective_filename)
-        open(objective_filename, 'w').close()
+        if not FLAGS.restore:
+            open(objective_filename, 'w').close()
 
         step_filename = os.path.join(outdir, 'steps.csv')
         logger.info("saving gamma values to, %s" % step_filename)
-        open(step_filename, 'w').close()
+        if not FLAGS.restore:
+            open(step_filename, 'w').close()
 
         # 'adafw', 'ada_afw', 'ada_pfw'
         if FLAGS.fw_variant.startswith('ada'):
@@ -121,7 +134,7 @@ class FWOptimizer(object):
             goutdir = os.path.join(outdir, 'gradients')
             os.makedirs(goutdir, exist_ok=True)
 
-        for t in range(FLAGS.n_fw_iter):
+        for t in range(start, start + FLAGS.n_fw_iter):
             # NOTE: First iteration (t = 0) is initialization
             g = tf.Graph()
             with g.as_default():
@@ -168,6 +181,7 @@ class FWOptimizer(object):
 
                     mu_s = s.mean().eval()
                     cov_s = s.stddev().eval()
+                    #debug('LMO', mu_s, cov_s)
 
                     # NOTE: keep only step size time
                     #total_time += end_inference_time - start_inference_time

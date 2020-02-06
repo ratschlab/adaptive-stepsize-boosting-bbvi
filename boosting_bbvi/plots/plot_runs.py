@@ -183,6 +183,7 @@ def plot_iteration(df, y='elbo', fw_split='split', ax=None, do_label=True, do_ou
                 y: ['mean', 'std', 'median'],
             })
         df_group.columns = ['fw_variant', 'fw_iter', '%s_mean' % y, "%s_std" % y, "%s_median" % y]
+        #x = np.arange(21, args.n_fw_iter + 1)
         x = np.arange(1, args.n_fw_iter + 1)
 
         line_search_mean = df_group.loc[df_group['fw_variant'] == 'line_search']["%s_mean" % y].values
@@ -192,7 +193,7 @@ def plot_iteration(df, y='elbo', fw_split='split', ax=None, do_label=True, do_ou
 
         fixed_mean = df_group.loc[df_group['fw_variant'] == 'fixed']["%s_mean" % y].values
         fixed_std = df_group.loc[df_group['fw_variant'] == 'fixed']["%s_std" % y].values
-        l_fixed = ax.plot(x, fixed_mean, label='Fixed', color='#EE854A')
+        l_fixed = ax.plot(x, fixed_mean, label='predefined (Locatello et al. 2018a)', color='#EE854A')
         ax.fill_between(x, fixed_mean - fixed_std, fixed_mean + fixed_std, alpha=0.2, facecolor='#EE854A')
 
         adafw_mean = df_group.loc[df_group['fw_variant'] == 'adafw']["%s_mean" % y].values
@@ -207,14 +208,16 @@ def plot_iteration(df, y='elbo', fw_split='split', ax=None, do_label=True, do_ou
 
         ada_pfw_mean = df_group.loc[df_group['fw_variant'] == 'ada_pfw']["%s_mean" % y].values
         ada_pfw_std = df_group.loc[df_group['fw_variant'] == 'ada_pfw']["%s_std" % y].values
+        #l_ada_pfw = ax.plot(x, ada_pfw_mean, label='AdaPFW', color='#956CB4', linestyle='--')
         l_ada_pfw = ax.plot(x, ada_pfw_mean, label='AdaPFW', color='#956CB4')
         ax.fill_between(x, ada_pfw_mean - ada_pfw_std, ada_pfw_mean + ada_pfw_std, alpha=0.2, facecolor='#956CB4')
 
         ax.set(xlabel='iteration')
+        #ax.set_yscale('symlog')
 
         if do_label:
             ax.set(ylabel='ELBO')
-            #ax.legend(loc='upper center', bbox_to_anchor=(0.5, -0.1), ncol=3, frameon=False)
+            #ax.legend(loc='lower center', bbox_to_anchor=(0.5, -0.23), ncol=3, frameon=False)
             #plt.figlegend([l_line_search, l_fixed, l_adafw, l_ada_afw, l_ada_pfw],
             #              ["line-search", 'fixed', 'AdaFW', 'AdaAFW', 'AdaPFW'],
             #              loc='upper center', bbox_to_anchor=(0.5, -0.1), ncol=3, frameon=False)
@@ -252,14 +255,15 @@ def plot_base_dist(df, y='roc'):
 
 
 def plot_adaptive(df):
-    """Analyze the performance of adaptive variants.
+    """Make a bar chart with type of adaptive step
 
     Args:
-        base_split: keep only Laplace
-        iter0_split: keep only vi
+        df: dataframe containing runs
     """
     adaptive_var = ['adafw', 'ada_afw', 'ada_pfw']
     ada_title = ['AdaFW', 'AdaAFW', 'AdaPFW']
+
+    # remove line-search and fixed
     df = df.loc[df['fw_variant'].isin(adaptive_var)]
 
     # plot linit with style
@@ -277,23 +281,47 @@ def plot_adaptive(df):
     #hp_matrix = pd.crosstab(df.eta, df.tau, values=df.roc, aggfunc='max')
     #sns.heatmap(hp_matrix)
 
+    priority_dict = {'init': 0, 'fixed': 1, 'adaptive': 2, 'drop': 3, 'away': 4}
+    color_dict = {'init': '#4878D0', 'fixed': '#EE854A', 'adaptive': '#6ACC64', 'drop': '#D65F5F', 'away': '#956CB4'}
+    if args.exp == 'blr':
+        ada_order = [['adaptive', 'fixed', 'init'], ['adaptive', 'away', 'drop', 'fixed', 'init'], ['adaptive', 'drop', 'fixed', 'init']]
+    elif args.exp == 'bmf':
+        ada_order = [['adaptive', 'fixed', 'init'], ['adaptive', 'drop', 'fixed', 'init'], ['adaptive', 'drop', 'fixed', 'init']]
+
+    color_order = [[color_dict[e] for e in a] for a in ada_order]
+
     # plot iter info
     fig, ax = plt.subplots(len(adaptive_var), 1)
     for i, fw_var in enumerate(adaptive_var):
         df_var = df.loc[df['fw_variant'] == fw_var]
-        t_matrix = pd.crosstab(df_var.fw_iter, df_var.iter_type)
+        # crosstab with percentages
+        t_matrix = pd.crosstab(df_var.fw_iter, df_var.iter_type).apply(lambda r: r/r.sum(), axis=1)
         #t_matrix.columns.names = ['']
         #t_matrix.reset_index(inplace=True)
         #sns.barplot(x='fw_iter', hue='iter_info', data=t_matrix)
-        t_matrix.plot(kind='bar', stacked=True, title=ada_title[i], ax=ax[i])
-        # Put a legend to the right of the current axis
-        ax[i].legend(loc='center left', bbox_to_anchor=(1, 0.5))
+        t_matrix.plot(kind='bar', stacked=True, title=ada_title[i], color=color_order[i], ax=ax[i])
+        handles, labels = ax[i].get_legend_handles_labels()
+        for k,l in enumerate(labels):
+            if labels[k] == 'fixed':
+                labels[k] = 'predefined'
+        # Put a legend to the right of the current axis with matching colors
+        #labels, handles = zip(*sorted(zip(labels, handles), key=lambda t: priority_dict[t[0]]))
+        ax[i].legend(handles, labels, loc='center left', bbox_to_anchor=(1, 0.5))
+
         # keep xticks only in the last one
         if i != len(adaptive_var) - 1:
             ax[i].set(xticks=[])
             ax[i].set(xlabel="")
+            if i == 1:
+                ax[i].set(ylabel="frequency")
         else:
             ax[i].set(xlabel='Iteration')
+            #ax[i].set_xticks(ax[i].get_xticks()[::5])
+            for i, label in enumerate(ax[i].get_xticklabels()):
+                if i % 5 != 0:
+                    label.set_visible(False)
+                else:
+                    label.set_rotation(0)
 
     if args.outfile == 'stdout':
         plt.show()
@@ -320,6 +348,9 @@ def make_iter_table(df, metric, return_latex=False):
         best = 'min'
         maximize = False
     else: raise NotImplementedError('metric %s not supported ' % metric)
+
+    dfl = df.loc[df['fw_variant'] == 'line_search']
+    debug(dfl['linit_fixed'].unique())
 
     def var_median(x):
         # return variance of the median estimator
@@ -428,6 +459,31 @@ def make_iter_table(df, metric, return_latex=False):
             print('\\\\')
 
     return res, df_best
+
+def plot_n_components(df, ax=None, do_output=True):
+    """Plot number of componets with iteration."""
+    return
+    if ax is None:
+        fig, ax = plt.subplots()
+
+    #df = df.loc[df['counter'] == 0]
+    #df = df.loc[df['fw_variant'] == 'ada_afw']
+    #df['n_components'] = df.cumsum()
+
+    y = 'n_components' # lazy technical debt when copying plotting code FIXME
+    #df_group = df.groupby(
+    #    ['fw_variant', 'fw_iter'], as_index=False).agg({
+    #        y: ['mean', 'std', 'median'],
+    #    })
+    #df_group.columns = ['fw_variant', 'fw_iter', '%s_mean' % y,
+    #                    "%s_std" % y, "%s_median" % y]
+    g = sns.lineplot(x='fw_iter', y=y, hue='fw_variant', data=df, ax=ax)
+    if do_output:
+        if args.outfile == 'stdout':
+            plt.show()
+        else:
+            plt.tight_layout()
+            ax.get_figure().savefig(args.outfile)
 
 
 def filter_runs(df_all, df_best, metric='roc'):
@@ -549,6 +605,10 @@ def blr():
 
         ctimes = np.cumsum(times)
 
+        gamma_filename = os.path.join(dr, 'steps.csv')
+        with open(gamma_filename, 'r') as f:
+            gammas = [float(r.strip()) for r in f.readlines()]
+
         iter_info_filename = os.path.join(dr, 'iter_info.txt')
         if os.path.isfile(iter_info_filename):
             with open(iter_info_filename, 'r') as f:
@@ -557,12 +617,32 @@ def blr():
             # fixed or line_search
             iter_types = [param_dict['fw_variant']] * n_fw_iter
 
+        # FIXME this assertion is failing, for some runs we've less step data
+        #assert len(gammas) >= len(iter_types), "gamma info not availabl"
+        def count_n_components(iter_list):
+            ret = [None] * len(iter_list)
+            n_comp = 0
+            for i, e in enumerate(iter_list):
+                if e == 'drop':
+                    n_comp -= 1
+                elif (i < len(gammas)) and (gammas[i] == 1.): # fully moved to new component
+                    n_comp = 1
+                elif (i >= len(gammas)) or (gammas[i] != 0.): # 0 would keep # component same
+                    n_comp += 1
+                ret[i] = n_comp
+            return ret
+        n_components = count_n_components(iter_types)
+
+        # Only keep runs which ran for > n_fw_iter
+        if len(iter_types) < n_fw_iter: continue
+
         rocs = pad_or_crop(rocs, n_fw_iter)
         ll_trains = pad_or_crop(ll_trains, n_fw_iter)
         ll_tests = pad_or_crop(ll_tests, n_fw_iter)
         elbos = pad_or_crop(elbos, n_fw_iter)
         gaps = pad_or_crop(gaps, n_fw_iter)
         iter_types = pad_or_crop(iter_types, n_fw_iter)
+        n_components = pad_or_crop(n_components, n_fw_iter)
         times = pad_or_crop(times, n_fw_iter)
         ctimes = pad_or_crop(times, n_fw_iter)
 
@@ -573,6 +653,7 @@ def blr():
             'elbo': elbos,
             'gap': gaps,
             'iter_type': iter_types,
+            'n_components': n_components,
             'time': times,
             'ctime': ctimes,
             'fw_iter': list(range(n_fw_iter)),
@@ -616,6 +697,7 @@ def blr():
     #all_run_df, best_run_df = filter_runs(all_run_df, best_run_df, 'roc')
 
     ### Make plot of iteration###
+    plot_n_components(best_run_df)
     #plot_iteration(best_run_df, 'elbo')
     #plot_iteration(all_run_df, 'elbo', fw_split='range')
     #make_table(best_run_df, 'roc')
@@ -625,7 +707,7 @@ def blr():
     #make_table(best_run_df, 'll_test')
 
     ### Analyze adaptive variants
-    #plot_adaptive(best_run_df)
+    #plot_adaptive(all_run_df)
 
     return best_run_df
 
@@ -697,6 +779,22 @@ def bmf():
         with open(gamma_filename, 'r') as f:
             gammas = [float(r.strip()) for r in f.readlines()]
 
+        # FIXME this assertion is failing, for some runs we've less step data
+        #assert len(gammas) >= len(iter_types), "gamma info not availabl"
+        def count_n_components(iter_list):
+            ret = [None] * len(iter_list)
+            n_comp = 0
+            for i, e in enumerate(iter_list):
+                if e == 'drop':
+                    n_comp -= 1
+                elif (i < len(gammas)) and (gammas[i] == 1.): # fully moved to new component
+                    n_comp = 1
+                elif (i >= len(gammas)) or (gammas[i] != 0.): # 0 would keep # component same
+                    n_comp += 1
+                ret[i] = n_comp
+            return ret
+        n_components = count_n_components(iter_types)
+
         mse_tests = pad_or_crop(mse_tests, n_fw_iter)
         mse_trains = pad_or_crop(mse_trains, n_fw_iter)
         ll_trains = pad_or_crop(ll_trains, n_fw_iter)
@@ -704,6 +802,7 @@ def bmf():
         elbos = pad_or_crop(elbos, n_fw_iter)
         gaps = pad_or_crop(gaps, n_fw_iter)
         iter_types = pad_or_crop(iter_types, n_fw_iter)
+        n_components = pad_or_crop(n_components, n_fw_iter)
         times = pad_or_crop(times, n_fw_iter)
 
         data = {
@@ -715,6 +814,7 @@ def bmf():
             'gap': gaps,
             'time': times,
             'iter_type': iter_types,
+            'n_components': n_components,
             'fw_iter': list(range(n_fw_iter)),
             'fw_variant': [param_dict['fw_variant']] * n_fw_iter,
             'seed': [param_dict['seed']] * n_fw_iter,
@@ -734,10 +834,17 @@ def bmf():
 
     res, best_run_df = make_iter_table(df, 'mse_train', True)
     debug('shape of runs', df.shape, best_run_df.shape)
+    df.to_csv(args.outfile + '_all')
+    best_run_df.to_csv(args.outfile)
+    return
 
     ### Make plot
+    plot_n_components(best_run_df)
+    #df = df.loc[df['fw_iter'] >= 20]
+    #plot_iteration(df, 'elbo', fw_split='range', do_label=True)
     #plot_iteration(best_run_df, 'elbo', fw_split='range')
     #plot_iteration(best_run_df, 'mse_test')
+    #plot_adaptive(df)
 
 
 def info():
@@ -817,19 +924,24 @@ if __name__ == "__main__":
         args.n_fw_iter = 50
         df_chem = blr()
         plot_iteration(df_chem, 'elbo', fw_split='range', ax=ax[0], do_label=True, do_output=False)
+        ax[0].set_xticks(np.arange(0, args.n_fw_iter, 5))
+        ax[0].set_xlim(0, 50)
 
         # eicu
         args.datapath = dpath[1]
         args.n_fw_iter = 40
         df_eicu = blr()
         plot_iteration(df_eicu, 'elbo', fw_split='range', ax=ax[1], do_label=False, do_output=False)
+        ax[1].set_xticks(np.arange(0, args.n_fw_iter, 5))
+        ax[1].set_xlim(0, 40)
 
         handles, labels = ax[0].get_legend_handles_labels()
         #fig.legend(handles, labels, loc='upper center', bbox_to_anchor=(0.5, -0.1), ncol=3, frameon=False)
-        fig.legend(handles, labels, loc='lower center', bbox_to_anchor=(0.5, -0.02), ncol=5, frameon=False)
+        fig.legend(handles, labels, loc='lower center', bbox_to_anchor=(0.5, -0.02),
+                   ncol=5, frameon=False, prop={'size': 12})
 
+        plt.tight_layout()
         if args.outfile == 'stdout':
             plt.show()
         else:
-            plt.tight_layout()
             ax[0].get_figure().savefig(args.outfile)

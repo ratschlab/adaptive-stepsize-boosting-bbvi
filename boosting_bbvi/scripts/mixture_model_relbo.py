@@ -39,18 +39,22 @@ np.random.seed(FLAGS.seed)
 
 # what we are trying to fit
 if FLAGS.exp == 'mixture':
+    n_features = 1
     pi = np.array([[0.4, 0.6]]).astype(np.float32)
     mus = [[1.], [-1.]]
     stds = [[.6], [.6]]
 elif FLAGS.exp == 'balanced':
+    n_features = 1
     pi = np.array([[0.5, 0.5]]).astype(np.float32)
     mus = [[1.], [-1.]]
     stds = [[.6], [.6]]
 elif FLAGS.exp == 's_and_s':
+    n_features = 1
     pi = np.array([[0.4, 0.6]]).astype(np.float32)
     mus = [[1.], [-1.]]
     stds = [[.1], [10.]]
 elif FLAGS.exp == 'many':
+    n_features = 1
     mus = np.array([[5.0], [10.0], [20.0], [-2]]).astype(np.float32)
     stds = np.array([[2], [2], [1], [1]]).astype(np.float32)
     pi = np.array([[1.0 / 3, 1.0 / 4, 1.0 / 4, 1.0 / 6]]).astype(np.float32)
