@@ -1,68 +1,41 @@
-# General
-
-This is the source code for "Boosting Black Box Variational Inference," by
-Francesco Locatello, Gideon Dresdner, Rajiv Khanna, Isabel Valera, Gunnar
-Rätsch. https://arxiv.org/abs/1806.02185.
-```
-@article{locatello2018boosting,
-  title={Boosting Black Box Variational Inference},
-  author={Locatello, Francesco and Dresdner, Gideon and Khanna, Rajiv and Valera, Isabel and R{\"a}tsch, Gunnar},
-  journal={arXiv preprint arXiv:1806.02185},
-  year={2018}
-}
-```
-
-# Setup
-
-1. Setup the dependencies using conda:
-```
-conda env create -n bbbvi --file conda-env.txt
-```
-
-2. Activate the environment
-```
-source activate bbbvi
-```
-
-3. Install the package for development
-```
-python setup.py develop
-```
 
 # Run
 
-## Bayesian Logistic Regression
+## Bayesian Logistic Regresssion
 
-To recreate the Bayesian Linear Regression results in Table 1 of the paper, run
 ```
-python blr.py \
-    --base_dist lpl \
-    --exp $EXPERIMENT \
-    --outdir $OUTDIR \
-    --seed $seed"
-```
-Where `$EXPERIMENT` is either `chem` or `wine`.
-
-## Bayesian Matrix Factorization
-
-To recreate the Bayesian matrix factorization results in Table 1 of the paper, run
-```
-python matrix_factorization.py --D $D --outdir $OUTDIR --seed $seed
+  python ${SRC}/scripts/bayesian_logistic_regression.py \                                                                                             --exp chem \
+   --fw_variant ${FW_VAR} \
+   --base_dist mvl \
+   --outdir ${DDIR} \
+   --datapath ${SRC}/data/chem \
+   --n_fw_iter ${ITER} \
+   --seed ${seed} \
+   --linit_fixed ${linit} \
+   --LMO_iter 1000 \
+   --iter0 vi \
+   --n_line_search_iter 25 \
+   --n_monte_carlo_samples 1000
 ```
 
-## Toy data (mixture model)
+Prameter values to create the results in Table 1 are `--linit_fixed 1.0 --damping_adafw 0.1 --exp_adafw 5.0` 
+for `AdaAFW`, `--linit_fixed 0.01 --damping_adafw 0.99 --exp_adafw 1.01` for `AdaPFW`,
+ `--linit_fixed 1.0 --damping_adafw 0.01 --exp_adafw 2.0` for `AdaFW` and
+`--linit_fixed 0.05` for `line search`
 
-To recreate Figure 1 of the experiment run
+Run on multiple seeds for more robust evaluation with
+confidence intervals
+
+Data is in `/cluster/home/shekhars/thesis_data/blr/hp`
+
+For generating plot 1 and table 1 of table, run
+
 ```
-python mixture_model_relbo.py \
-    --relbo_reg 1.0 \
-    --relbo_anneal linear \
-    --exp mixture \
-    --fw_variant $variant \
-    --outdir $OUTDIR"
+python plot_runs.py \
+  --cluster=True \
+  --datapath=/path/to/data \
+  --adaptive_var adafw line_search ada_afw ada_pfw \
+  --outfile=/outdir/image.png \
+  --select_run=run_mean \
+  --n_fw_iter=50
 ```
-Where `$variant` is `fixed`, `line_search`, or `fc`.
-
-# License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
