@@ -13,14 +13,14 @@ dependencies:
   - cycler=0.10.0
   - dbus=1.13.0
   - expat=2.2.5
-  - fontconfig=2.13.1
+  - fontconfig
   - freetype=2.9.1
   - gast=0.2.0
   - gettext=0.19.8.1
   - glib=2.56.2
   - grpcio=1.12.1
-  - gst-plugins-base=1.12.5
-  - gstreamer=1.12.5
+  - gst-plugins-base
+  - gstreamer
   - h5py=2.8.0
   - hdf5=1.10.2
   - html5lib=0.9999999
@@ -41,7 +41,7 @@ dependencies:
   - libxcb=1.13
   - libxml2=2.9.8
   - markdown=3.0.1
-  - matplotlib=2.2.3
+  - matplotlib
   - mkl=2019.0
   - mkl_fft=1.0.6
   - mkl_random=1.0.1
@@ -56,7 +56,7 @@ dependencies:
   - protobuf=3.6.1
   - pthread-stubs=0.4
   - pyparsing=2.3.0
-  - pyqt=5.6.0
+  - pyqt
   - python=3.6.6
   - python-dateutil=2.7.5
   - pytz=2018.7
@@ -67,13 +67,13 @@ dependencies:
   - setuptools=40.5.0
   - sip=4.18.1
   - six=1.11.0
-  - sqlite=3.25.2
+  - sqlite
   - statsmodels=0.9.0
   - tensorboard=1.7.0
   - tensorflow=1.7.0
   - tensorflow-base=1.7.0
   - termcolor=1.1.0
-  - tk=8.6.8
+  - tk
   - tornado=5.1.1
   - werkzeug=0.14.1
   - wheel=0.32.2
