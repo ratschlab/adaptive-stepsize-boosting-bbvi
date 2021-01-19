@@ -235,11 +235,6 @@ class FWOptimizer(object):
                         total_time += end_adapfw_time - start_adapfw_time
                         gamma = step_result['gamma'] # just for logging
 
-                    # TODO(sauravshekhar): In more complex algorithms like
-                    # Away-Steps and fully corrective, it is not necessary
-                    # that a new component will always be added. So instead of
-                    # getting gamma, pass comps and weights to the step
-                    # size selection methods so they can change them
                     if ((FLAGS.fw_variant == 'ada_afw'
                          or FLAGS.fw_variant == 'ada_pfw') and t > 0):
                         comps = step_result['comps']

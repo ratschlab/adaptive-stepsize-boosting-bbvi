@@ -104,9 +104,6 @@ def adaptive_fw(weights, locs, diags, q_t, mu_s, cov_s, s_t, p, k, c_prev,
         quad_bound_rhs = f_t  + d_1 + d_2
 
         # $w_{t + 1} = [(1 - \gamma)w_t, \gamma]$
-        # TODO(sauravshekhar): Handle the case of gamma = 1.0
-        # separately, weights might not get exactly 0 because
-        # of precision issues. 0 wt components should be removed
         new_weights = copy.copy(weights)
         new_weights = [(1. - gamma) * w for w in new_weights]
         new_weights.append(gamma)

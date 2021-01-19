@@ -139,7 +139,6 @@ def construct_base(dist_name, dims, iter, name='', **kwargs):
     Returns:
         An instance of the distribution with Gaussian initialization
         for mean and variances"""
-    # TODO(sauravshekhar) check if np.random.normal() matters and remove o/w
     loc = tf.get_variable(
         name + "_loc%d" % iter,
         initializer=tf.random_normal(dims))

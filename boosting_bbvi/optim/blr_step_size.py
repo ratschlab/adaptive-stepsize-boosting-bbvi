@@ -354,8 +354,6 @@ def adaptive_afw(weights, params, q_t, mu_s, cov_s, s_t, p, k, l_prev):
     if gap_a < 0: eprint('Away gap < 0!!!')
     logger.info('fw gap %.3e, away gap %.3e' % (gap_fw, gap_a))
 
-    # FIXME(sauravshekhar): In case of one component w will be 1.0
-    # fix FW direction in that case as w / (1 - w) will cause issues
     if (gap_fw >= gap_a) or (len(params) == 1):
         # FW direction, proceeds exactly as adafw
         logger.info('Proceeding in FW direction ')

@@ -140,9 +140,6 @@ def main(_):
                 y_data_matrix = tf.tile(
                     tf.expand_dims(y_data, 1), (1, n_test_samples))
                 pred_logits = tf.matmul(X, tf.transpose(W)) # (N, n_test)
-                # FIXME(sauravshekhar) first sigmoid then mean
-                # or first mean then sigmoid, prev implementation is
-                # mean logit -> sigmoid
                 ypred = tf.sigmoid(tf.reduce_mean(pred_logits, axis=1))
                 pY = Bernoulli(logits=pred_logits) # (N, n_test)
                 log_likelihoods = pY.log_prob(y_data_matrix) # (N, n_test)

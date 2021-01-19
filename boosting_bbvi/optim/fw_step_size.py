@@ -40,9 +40,6 @@ flags.DEFINE_enum(
 
 MIN_GAMMA = 0.001
 
-# TODO(sauravshekhar) The initialization process suggested in
-# the paper seems like a heuristic and is complicated in the
-# case of probability distributions. FIXME later
 def adafw_linit(q_0, p):
     """Initialization of L estimate for Adaptive
     Frank Wolfe algorithm. Given in v2 of the
@@ -238,8 +235,6 @@ def adaptive_afw(weights, comps, locs, diags, q_t, mu_s, cov_s, s_t, p,
     # Set $q_{t+1}$'s params
     new_locs = copy.copy(locs)
     new_diags = copy.copy(diags)
-    # FIXME(sauravshekhar): In case of one component w will be 1.0
-    # fix FW direction in that case as w / (1 - w) will cause issues
     if (gap_fw >= gap_a) or (len(comps) == 1):
         # FW direction, proceeds exactly as adafw
         logger.info('Proceeding in FW direction ')
@@ -436,9 +431,6 @@ def adaptive_fw(weights, locs, diags, q_t, mu_s, cov_s, s_t, p, k, l_prev,
         quad_bound_rhs = f_t  + d_1 + d_2
 
         # $w_{t + 1} = [(1 - \gamma)w_t, \gamma]$
-        # TODO(sauravshekhar): Handle the case of gamma = 1.0
-        # separately, weights might not get exactly 0 because
-        # of precision issues. 0 wt components should be removed
         new_weights = copy.copy(weights)
         new_weights = [(1. - gamma) * w for w in new_weights]
         new_weights.append(gamma)

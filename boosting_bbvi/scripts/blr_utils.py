@@ -139,7 +139,6 @@ def load_eicu(task='icu_mortality'):
     return (data['xtrain'], data['ytrain'][:,col]), (data['xtest'], data['ytest'][:,col])
 
 def load_eicu_bak(task='icu_mortality'):
-    '''TODO. We need to release this data. Gideon <gideon@inf.ethz.ch>'''
     basepath = "data/eicu/train_test_split.npz"
     data = np.load(basepath)
 
