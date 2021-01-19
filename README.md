@@ -4,7 +4,7 @@
 ## Bayesian Logistic Regresssion
 
 ```
-  python ${SRC}/scripts/bayesian_logistic_regression.py \                                                                                             --exp chem \
+  python ${SRC}/scripts/bayesian_logistic_regression.py --exp chem \
    --fw_variant ${FW_VAR} \
    --base_dist mvl \
    --outdir ${DDIR} \
